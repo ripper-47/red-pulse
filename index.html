@@ -116,8 +116,12 @@
 <script>
 // ---- Protocol: MELK / ELK-BLEDOM family (Magic Lantern app, device "OA10") ----
 // Service 0xFFF0, write 0xFFF3. Frames are 9 bytes, 0x7E ... 0xEF.
-const SERVICE = 0xfff0;
-const WRITE_CHAR = 0xfff3;
+// Full UUID strings: some iOS Web Bluetooth browsers don't accept the short numeric form.
+const SERVICE = "0000fff0-0000-1000-8000-00805f9b34fb";
+const WRITE_CHAR = "0000fff3-0000-1000-8000-00805f9b34fb";
+// Other services this controller family has been seen with, so a different board still gets found.
+const ALT_SERVICES = ["0000ffe0-0000-1000-8000-00805f9b34fb", "0000ffd0-0000-1000-8000-00805f9b34fb", "0000ffd5-0000-1000-8000-00805f9b34fb"];
+const errText = (e) => (e && (e.message || e.name)) || String(e);
 const CMD = {
   login1: [0x7e, 0x07, 0x83],
   login2: [0x7e, 0x04, 0x04],
@@ -147,7 +151,7 @@ async function write(bytes) {
 async function writeLatest(bytes) {
   if (busy || !ch) return;
   busy = true;
-  try { await write(bytes); } catch (e) { log("write failed: " + e.message); }
+  try { await write(bytes); } catch (e) { log("write failed: " + errText(e)); }
   finally { busy = false; }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -161,18 +165,27 @@ function setConnected(ok, text) {
 
 async function connect() {
   if (device && device.gatt.connected) { stop(); device.gatt.disconnect(); return; }
-  const opts = $("showAll").checked
-    ? { acceptAllDevices: true, optionalServices: [SERVICE] }
-    : { filters: [{ namePrefix: "MELK" }, { namePrefix: "OA" }, { namePrefix: "ELK" }, { services: [SERVICE] }],
-        optionalServices: [SERVICE] };
+  const optional = [SERVICE, ...ALT_SERVICES];
+  const filtered = { filters: [{ namePrefix: "MELK" }, { namePrefix: "OA" }, { namePrefix: "ELK" }], optionalServices: optional };
+  const all = { acceptAllDevices: true, optionalServices: optional };
+  let step = "choosing device";
   try {
     setConnected(false, "Choose your lights in the list…");
-    device = await navigator.bluetooth.requestDevice(opts);
+    try {
+      device = await navigator.bluetooth.requestDevice($("showAll").checked ? all : filtered);
+    } catch (e) {
+      if (e && e.name === "NotFoundError") throw e;
+      log("filtered search failed (" + errText(e) + "), showing all devices");
+      device = await navigator.bluetooth.requestDevice(all);
+    }
+    log("picked: " + (device.name || "(no name)"));
     device.addEventListener("gattserverdisconnected", () => { ch = null; stop(); setConnected(false, "Disconnected"); });
+    step = "connecting";
     setConnected(false, "Connecting to " + (device.name || "device") + "…");
     const server = await device.gatt.connect();
-    const svc = await server.getPrimaryService(SERVICE);
-    ch = await svc.getCharacteristic(WRITE_CHAR);
+    step = "finding the lights' control channel";
+    ch = await findWriteChar(server);
+    step = "sending hello";
     // MELK controllers drop the link unless this handshake comes first.
     await write(CMD.login1); await sleep(300);
     await write(CMD.login2); await sleep(300);
@@ -180,9 +193,33 @@ async function connect() {
     log("connected to " + device.name);
     setConnected(true, "Connected to " + (device.name || "lights"));
   } catch (e) {
-    log("connect: " + e.message);
-    setConnected(false, e.name === "NotFoundError" ? "No device chosen" : "Couldn't connect: " + e.message);
+    log("failed while " + step + ": " + errText(e));
+    setConnected(false, e && e.name === "NotFoundError" ? "No device chosen" : "Couldn't connect while " + step + ": " + errText(e));
   }
+}
+
+// Use FFF0/FFF3 when present; otherwise log what the device offers and pick its first writable characteristic.
+async function findWriteChar(server) {
+  try {
+    const svc = await server.getPrimaryService(SERVICE);
+    return await svc.getCharacteristic(WRITE_CHAR);
+  } catch (e) {
+    log("FFF3 not found (" + errText(e) + "), scanning services");
+  }
+  let fallback = null;
+  for (const uuid of ALT_SERVICES) {
+    let svc;
+    try { svc = await server.getPrimaryService(uuid); } catch { continue; }
+    const chars = await svc.getCharacteristics();
+    for (const c of chars) {
+      const p = c.properties;
+      log("svc " + uuid.slice(4, 8) + " char " + c.uuid.slice(4, 8) + (p.write ? " write" : "") + (p.writeWithoutResponse ? " writeNR" : "") + (p.notify ? " notify" : ""));
+      if (!fallback && (p.write || p.writeWithoutResponse)) fallback = c;
+    }
+  }
+  if (!fallback) throw new Error("no writable characteristic found");
+  log("using " + fallback.uuid);
+  return fallback;
 }
 
 // ---- Settings ----
@@ -208,7 +245,7 @@ async function start() {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
-  } catch (e) { log("mic: " + e.message); $("status").textContent = "Microphone permission is needed"; return; }
+  } catch (e) { log("mic: " + errText(e)); $("status").textContent = "Microphone permission is needed"; return; }
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   await ctx.resume();
   const src = ctx.createMediaStreamSource(stream);
@@ -232,7 +269,7 @@ async function prime() {
     await write(CMD.on);
     if (state.method === "color") { await write(CMD.brightness(100)); }
     else { await write(CMD.color(255, 0, 0)); }
-  } catch (e) { log("prime: " + e.message); }
+  } catch (e) { log("prime: " + errText(e)); }
   busy = false; lastSent = -1;
 }
 
