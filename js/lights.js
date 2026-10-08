@@ -70,12 +70,21 @@ export class Lights {
     finally { this.busy = false; }
   }
 
-  // Drop a frame instead of queueing when the radio is still busy, so the lights never lag behind the music.
+  // While the radio is busy, keep only the newest frame and send it the moment the radio frees up,
+  // so nothing queues behind the music and the latest change is never left waiting for the next frame.
   async writeLatest(bytes) {
-    if (this.busy || !this.ch) return;
+    if (!this.ch) return;
+    if (this.busy) { this.pending = bytes; return; }
     this.busy = true;
-    try { await this.write(bytes); } catch (e) { this.log("write failed: " + errText(e)); }
-    finally { this.busy = false; }
+    try {
+      let next = bytes;
+      while (next) {
+        this.pending = null;
+        await this.write(next);
+        next = this.pending;
+      }
+    } catch (e) { this.log("write failed: " + errText(e)); }
+    finally { this.busy = false; this.pending = null; }
   }
 
   // Use FFF0/FFF3 when present; otherwise log what the device offers and pick its first writable characteristic.

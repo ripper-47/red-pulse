@@ -4,7 +4,7 @@ A web app for the OA10 rope lights, run from the iPhone in the Bluefy browser. L
 
 Modes so far:
 - **Red Pulse**: all red, pulsing or blinking with sound from the iPhone mic.
-- **Dark Colors**: jumps to a random deep color (red, blue, purple, wine, indigo, crimson, plum, burnt orange) on each beat, with brightness following the sound.
+- **Dark Colors**: each beat flashes a random deep color (red, blue, purple, wine, indigo, crimson, plum, burnt orange) that fades to pitch black before the next one.
 - **Built-in Effects**: steps through the controller's own patterns (effect numbers 0-255), including multi-color ones.
 
 ## Why a web page
@@ -18,7 +18,7 @@ A native Swift app is the fallback if Bluefy's mic or Bluetooth misbehaves; it n
 3. Tap **Solid red** to confirm control, then **Start** and allow the microphone.
 4. Keep the screen on while it runs; iOS pauses the mic when the screen locks.
 
-Controls: Style (Pulse = smooth, Blink = flash on beats), Sensitivity, Lowest glow, Bass focus. Under Advanced you can switch to driving the lights with the brightness command instead of the red level, change the update rate, show every Bluetooth device, and see a log.
+Controls: Style (Pulse = smooth, Blink = flash on beats), Sensitivity, Bass focus. Both styles go pitch black between hits. Under Advanced you can switch to driving the lights with the brightness command instead of the red level, change the update rate, show every Bluetooth device, and see a log.
 
 ## Code layout
 Plain ES modules, no build step; GitHub Pages serves the repo as is.
