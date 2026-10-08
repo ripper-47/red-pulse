@@ -102,7 +102,7 @@ function renderSettings() {
 }
 
 // ---- Run loop ----
-let lastKey = "", lastSendAt = 0, lastBase = "";
+let lastKey = "", lastSendAt = 0, lastBase = "", lastOut = { r: 0, g: 0, b: 0 };
 
 async function start() {
   app.instance = app.mode.create(app.settings);
@@ -122,7 +122,7 @@ async function start() {
 async function prime() {
   if (app.method === "color") await lights.send(CMD.on, CMD.brightness(100));
   else await lights.send(CMD.on);
-  lastKey = ""; lastBase = "";
+  lastKey = ""; lastBase = ""; lastOut = { r: 0, g: 0, b: 0 };
 }
 
 function stop() {
@@ -150,7 +150,9 @@ function loop() {
   $("orb").style.background = `radial-gradient(circle at 50% 45%, rgb(${out.r / (peak || 1) * 255},${out.g / (peak || 1) * 255},${out.b / (peak || 1) * 255}), #1a0a0d 75%)`;
   $("orb").style.opacity = Math.max(0.08, peak / 255).toFixed(3);
 
-  if (now - lastSendAt < 1000 / +$("rate").value) return;
+  // A big jump (new color, a hit, going dark) goes out immediately; small fades respect the update rate.
+  const jump = Math.max(Math.abs(out.r - lastOut.r), Math.abs(out.g - lastOut.g), Math.abs(out.b - lastOut.b));
+  if (jump < 60 && now - lastSendAt < 1000 / +$("rate").value) return;
   let cmd;
   if (app.method === "color") {
     cmd = CMD.color(out.r, out.g, out.b);
@@ -163,7 +165,7 @@ function loop() {
   }
   const key = hex(cmd);
   if (key === lastKey && now - lastSendAt < 1000) return;
-  lastSendAt = now; lastKey = key;
+  lastSendAt = now; lastKey = key; lastOut = out;
   lights.writeLatest(cmd);
 }
 

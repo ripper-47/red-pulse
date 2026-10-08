@@ -5,12 +5,12 @@ export class Mic {
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
-    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
     await this.ctx.resume();
     const src = this.ctx.createMediaStreamSource(this.stream);
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 1024;
-    this.analyser.smoothingTimeConstant = 0.2;
+    this.analyser.smoothingTimeConstant = 0; // no averaging across frames, so hits register at once
     src.connect(this.analyser);
     this.freq = new Uint8Array(this.analyser.frequencyBinCount);
     this.timeBuf = new Float32Array(this.analyser.fftSize);
