@@ -79,6 +79,20 @@ function renderSettings() {
       show();
       label.append(val);
       box.append(input);
+    } else if (s.type === "number") {
+      // Stepper for picking exact values on a phone, with an optional name per value.
+      const row = document.createElement("div");
+      row.className = "grid3";
+      const minus = Object.assign(document.createElement("button"), { textContent: "−" });
+      const plus = Object.assign(document.createElement("button"), { textContent: "+" });
+      const val = document.createElement("div");
+      val.className = "stepper-val";
+      const show = () => { const v = app.settings[s.key]; val.textContent = v + (s.names?.[v] ? " · " + s.names[v] : ""); };
+      const step = (d) => { app.settings[s.key] = Math.min(s.max, Math.max(s.min, app.settings[s.key] + d)); show(); save(); };
+      minus.onclick = () => step(-1); plus.onclick = () => step(1);
+      show();
+      row.append(minus, val, plus);
+      box.append(row);
     } else if (s.type === "color") {
       const input = Object.assign(document.createElement("input"), { type: "color", value: app.settings[s.key] });
       input.oninput = () => { app.settings[s.key] = input.value; save(); };
@@ -126,6 +140,12 @@ function loop() {
   const now = performance.now();
   const out = app.instance.frame({ audio: app.mic ? app.mic.read() : null, now, settings: app.settings });
   if (!out) return;
+  if (out.raw) {
+    // Raw commands from the mode: send only when they change.
+    const key = out.raw.map(hex).join("|");
+    if (key !== lastKey && !lights.busy) { lastKey = key; log("sent " + key); lights.send(...out.raw); }
+    return;
+  }
   const peak = Math.max(out.r, out.g, out.b);
   $("orb").style.background = `radial-gradient(circle at 50% 45%, rgb(${out.r / (peak || 1) * 255},${out.g / (peak || 1) * 255},${out.b / (peak || 1) * 255}), #1a0a0d 75%)`;
   $("orb").style.opacity = Math.max(0.08, peak / 255).toFixed(3);

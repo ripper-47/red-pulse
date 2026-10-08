@@ -2,7 +2,9 @@
 
 A web app for the OA10 rope lights, run from the iPhone in the Bluefy browser. Live at https://ripper-47.github.io/red-pulse/.
 
-Its first mode, **Red Pulse**, turns the lights all red and pulses (or blinks) them with sound from the iPhone mic. More modes slot in alongside it.
+Modes so far:
+- **Red Pulse**: all red, pulsing or blinking with sound from the iPhone mic.
+- **Built-in Effects**: steps through the controller's own patterns (effect numbers 0-255), including multi-color ones.
 
 ## Why a web page
 iPhone Safari can't use Bluetooth, but the free **Bluefy** browser app supports Web Bluetooth and the mic. That means no Mac, Xcode, or Apple developer account is needed. The page just has to be served over HTTPS (GitHub Pages works).
@@ -56,7 +58,9 @@ export default {
 
 2. Import it in `js/modes/index.js` and add it to `MODES`. With two or more modes, the picker appears at the top.
 
-The app handles rate limiting, skipping duplicate frames, dropping frames when Bluetooth is busy, and the "Brightness cmd" option. A mode only says what color the strip should be right now. The controller drives the whole strip as one color, so per-LED patterns aren't possible; for those, use the built-in effects via `CMD.effect(id)`.
+The app handles rate limiting, skipping duplicate frames, dropping frames when Bluetooth is busy, and the "Brightness cmd" option. A mode only says what color the strip should be right now. A mode can instead return `{ raw: [command, ...] }`, which is sent only when it changes (see `effects.js`).
+
+The known commands set one color for the whole strip. The controller's built-in effects show several colors along it, so per-LED control likely exists but isn't documented yet. Capturing what Magic Lantern's Custom tab sends would reveal it.
 
 ## Protocol (MELK / ELK-BLEDOM family)
 Source: the open-source Home Assistant integration [elkbledom](https://github.com/dave-code-ruiz/elkbledom), which lists `MELK-OA10` explicitly, plus [home-assistant/core#145934](https://github.com/home-assistant/core/issues/145934) for Magic Lantern devices.
