@@ -1,0 +1,173 @@
+// UI wiring: picks a mode, feeds it mic data every frame, and sends its color to the lights.
+import { CMD, hex } from "./protocol.js";
+import { Lights, errText } from "./lights.js";
+import { Mic } from "./audio.js";
+import { MODES } from "./modes/index.js";
+
+const $ = (id) => document.getElementById(id);
+function log(msg) {
+  const el = $("log");
+  el.textContent = (new Date().toLocaleTimeString() + "  " + msg + "\n" + el.textContent).slice(0, 4000);
+}
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+const lights = new Lights({ log, onDisconnect: () => { stop(); setConnected(false, "Disconnected"); } });
+const app = { method: "color", mode: null, settings: {}, instance: null, mic: null, running: false, raf: 0 };
+
+// ---- Connection ----
+function setConnected(ok, text) {
+  $("dot").classList.toggle("on", ok);
+  $("status").textContent = text;
+  for (const id of ["go", "testRed", "off"]) $(id).disabled = !ok;
+  $("connect").textContent = ok ? "Disconnect" : "Connect to lights";
+}
+
+async function connect() {
+  if (lights.connected) { stop(); lights.disconnect(); return; }
+  try {
+    await lights.connect({
+      showAll: $("showAll").checked,
+      onStep: (s) => setConnected(false, s === "choosing device" ? "Choose your lights in the list…" : "Connecting to " + lights.name + "…"),
+    });
+    setConnected(true, "Connected to " + lights.name);
+  } catch (e) {
+    log("connect failed " + errText(e));
+    setConnected(false, e && e.name === "NotFoundError" ? "No device chosen" : "Couldn't connect " + errText(e));
+  }
+}
+
+// ---- Mode picker and settings, built from each mode's `settings` list ----
+function selectMode(id) {
+  if (app.running) stop();
+  app.mode = MODES.find((m) => m.id === id) || MODES[0];
+  const saved = store.get("settings:" + app.mode.id) || {};
+  app.settings = Object.fromEntries(app.mode.settings.map((s) => [s.key, saved[s.key] ?? s.default]));
+  $("title").textContent = app.mode.name;
+  $("modeDesc").textContent = app.mode.description || "";
+  renderSettings();
+  store.set("mode", app.mode.id);
+}
+
+function renderSettings() {
+  const box = $("settings");
+  box.innerHTML = "";
+  const save = () => store.set("settings:" + app.mode.id, app.settings);
+  for (const s of app.mode.settings) {
+    const label = document.createElement("label");
+    label.textContent = s.label;
+    box.append(label);
+    if (s.type === "choice") {
+      const seg = document.createElement("div");
+      seg.className = "seg";
+      seg.style.gridTemplateColumns = `repeat(${s.options.length}, 1fr)`;
+      for (const [value, text] of s.options) {
+        const b = document.createElement("button");
+        b.textContent = text;
+        b.classList.toggle("sel", app.settings[s.key] === value);
+        b.onclick = () => { app.settings[s.key] = value; for (const x of seg.children) x.classList.toggle("sel", x === b); save(); };
+        seg.append(b);
+      }
+      box.append(seg);
+    } else if (s.type === "range") {
+      const val = document.createElement("span");
+      const input = Object.assign(document.createElement("input"), { type: "range", min: s.min, max: s.max, step: s.step ?? 1, value: app.settings[s.key] });
+      const show = () => (val.textContent = input.value + (s.unit || ""));
+      input.oninput = () => { app.settings[s.key] = +input.value; show(); save(); };
+      show();
+      label.append(val);
+      box.append(input);
+    } else if (s.type === "color") {
+      const input = Object.assign(document.createElement("input"), { type: "color", value: app.settings[s.key] });
+      input.oninput = () => { app.settings[s.key] = input.value; save(); };
+      box.append(input);
+    }
+  }
+}
+
+// ---- Run loop ----
+let lastKey = "", lastSendAt = 0, lastBase = "";
+
+async function start() {
+  app.instance = app.mode.create(app.settings);
+  if (app.mode.usesMic) {
+    app.mic = new Mic();
+    try { await app.mic.start(); }
+    catch (e) { log("mic: " + errText(e)); $("status").textContent = "Microphone permission is needed"; app.mic = null; return; }
+  }
+  app.running = true;
+  $("go").textContent = "Stop";
+  await prime();
+  try { await navigator.wakeLock?.request("screen"); } catch {}
+  loop();
+}
+
+// Put the lights in a known state: on, and full brightness when driving with color.
+async function prime() {
+  if (app.method === "color") await lights.send(CMD.on, CMD.brightness(100));
+  else await lights.send(CMD.on);
+  lastKey = ""; lastBase = "";
+}
+
+function stop() {
+  app.running = false;
+  cancelAnimationFrame(app.raf);
+  app.mic?.stop(); app.mic = null;
+  app.instance?.stop?.(); app.instance = null;
+  $("go").textContent = "Start";
+  $("orb").style.opacity = 0.08;
+}
+
+function loop() {
+  if (!app.running) return;
+  app.raf = requestAnimationFrame(loop);
+  const now = performance.now();
+  const out = app.instance.frame({ audio: app.mic ? app.mic.read() : null, now, settings: app.settings });
+  if (!out) return;
+  const peak = Math.max(out.r, out.g, out.b);
+  $("orb").style.background = `radial-gradient(circle at 50% 45%, rgb(${out.r / (peak || 1) * 255},${out.g / (peak || 1) * 255},${out.b / (peak || 1) * 255}), #1a0a0d 75%)`;
+  $("orb").style.opacity = Math.max(0.08, peak / 255).toFixed(3);
+
+  if (now - lastSendAt < 1000 / +$("rate").value) return;
+  let cmd;
+  if (app.method === "color") {
+    cmd = CMD.color(out.r, out.g, out.b);
+  } else {
+    // Brightness command: set the hue at full strength once, then vary brightness.
+    const k = peak ? 255 / peak : 0;
+    const base = CMD.color(out.r * k, out.g * k, out.b * k);
+    if (peak && hex(base) !== lastBase) { cmd = base; lastBase = hex(base); }
+    else cmd = CMD.brightness((peak / 255) * 100);
+  }
+  const key = hex(cmd);
+  if (key === lastKey && now - lastSendAt < 1000) return;
+  lastSendAt = now; lastKey = key;
+  lights.writeLatest(cmd);
+}
+
+// ---- Wiring ----
+const picker = $("mode");
+for (const m of MODES) picker.append(new Option(m.name, m.id));
+picker.value = store.get("mode") || MODES[0].id;
+picker.onchange = () => selectMode(picker.value);
+$("modePicker").hidden = MODES.length < 2;
+selectMode(picker.value);
+
+$("method").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  app.method = b.dataset.v;
+  for (const x of $("method").children) x.classList.toggle("sel", x === b);
+  if (app.running) prime();
+});
+const showRate = () => ($("rateV").textContent = $("rate").value);
+$("rate").oninput = showRate; showRate();
+
+$("connect").onclick = connect;
+$("go").onclick = () => (app.running ? stop() : start());
+$("testRed").onclick = async () => { stop(); await lights.send(CMD.on, CMD.brightness(100), CMD.color(255, 0, 0)); log("sent solid red"); };
+$("off").onclick = async () => { stop(); await lights.send(CMD.off); log("sent off"); };
+
+if (!Lights.supported) { $("unsupported").hidden = false; $("connect").disabled = true; }
+log("protocol: on=" + hex(CMD.on) + "  red=" + hex(CMD.color(255, 0, 0)));

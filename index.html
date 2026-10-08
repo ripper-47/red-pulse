@@ -5,62 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0b0507">
-<title>Red Pulse</title>
-<style>
-  :root {
-    --bg: #0b0507;
-    --panel: #170b0e;
-    --line: #2e1519;
-    --text: #f4e9ea;
-    --muted: #a88a8e;
-    --red: #ff2a3d;
-    --red-dim: #5a141b;
-    --ok: #4ade80;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--text); }
-  body {
-    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
-    max-width: 520px; margin: 0 auto;
-  }
-  h1 { font-size: 22px; margin: 4px 0 2px; letter-spacing: .2px; }
-  .sub { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
-  .row { display: flex; align-items: center; gap: 10px; }
-  .status { font-size: 14px; color: var(--muted); }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: #555; flex: none; }
-  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
-  button {
-    font: inherit; font-weight: 600; color: var(--text); background: #2a1216;
-    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; width: 100%;
-    -webkit-tap-highlight-color: transparent;
-  }
-  button:active { transform: scale(.98); }
-  button.primary { background: var(--red); border-color: var(--red); color: #fff; }
-  button:disabled { opacity: .45; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  #orb {
-    width: 180px; height: 180px; border-radius: 50%; margin: 6px auto 14px;
-    background: radial-gradient(circle at 50% 45%, var(--red), #7a0d16 70%);
-    opacity: .08; transition: opacity 40ms linear;
-    box-shadow: 0 0 60px var(--red);
-  }
-  #go { font-size: 18px; padding: 16px; }
-  label { display: block; font-size: 14px; color: var(--muted); margin: 14px 0 6px; }
-  label span { float: right; color: var(--text); }
-  input[type=range] { width: 100%; accent-color: var(--red); }
-  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); }
-  .seg button.sel { background: var(--red-dim); color: var(--text); }
-  details summary { color: var(--muted); font-size: 14px; cursor: pointer; }
-  #log { font: 12px/1.35 ui-monospace, Menlo, monospace; color: var(--muted); white-space: pre-wrap; max-height: 180px; overflow: auto; margin-top: 10px; }
-  .warn { color: #fbbf24; font-size: 14px; }
-</style>
+<title>Lights</title>
+<link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <h1>Red Pulse</h1>
-  <div class="sub">All-red lights that pulse with the sound around your phone.</div>
+  <h1 id="title">Lights</h1>
+  <div class="sub">Custom modes for your Bluetooth rope lights.</div>
 
   <div id="unsupported" class="panel warn" hidden>
     This browser can't reach Bluetooth. On iPhone, open this page in the free <b>Bluefy</b> browser app.
@@ -75,23 +25,13 @@
   </div>
 
   <div class="panel">
+    <div id="modePicker" style="margin-bottom:14px">
+      <select id="mode" aria-label="Mode"></select>
+    </div>
     <div id="orb"></div>
     <button id="go" class="primary" disabled>Start</button>
-
-    <label>Style</label>
-    <div class="seg" id="style">
-      <button data-v="pulse" class="sel">Pulse</button>
-      <button data-v="blink">Blink</button>
-    </div>
-
-    <label>Sensitivity <span id="sensV"></span></label>
-    <input id="sens" type="range" min="0" max="100" value="60">
-
-    <label>Lowest glow <span id="floorV"></span></label>
-    <input id="floor" type="range" min="0" max="60" value="4">
-
-    <label>Bass focus <span id="bassV"></span></label>
-    <input id="bass" type="range" min="0" max="100" value="70">
+    <div id="modeDesc" class="mode-desc"></div>
+    <div id="settings"></div>
   </div>
 
   <div class="panel">
@@ -103,7 +43,7 @@
       <summary>Advanced</summary>
       <label>Drive brightness with</label>
       <div class="seg" id="method">
-        <button data-v="color" class="sel">Red level</button>
+        <button data-v="color" class="sel">Color level</button>
         <button data-v="bright">Brightness cmd</button>
       </div>
       <label>Updates per second <span id="rateV"></span></label>
@@ -113,235 +53,6 @@
     </details>
   </div>
 
-<script>
-// ---- Protocol: MELK / ELK-BLEDOM family (Magic Lantern app, device "OA10") ----
-// Service 0xFFF0, write 0xFFF3. Frames are 9 bytes, 0x7E ... 0xEF.
-// Full UUID strings: some iOS Web Bluetooth browsers don't accept the short numeric form.
-const SERVICE = "0000fff0-0000-1000-8000-00805f9b34fb";
-const WRITE_CHAR = "0000fff3-0000-1000-8000-00805f9b34fb";
-// Other services this controller family has been seen with, so a different board still gets found.
-const ALT_SERVICES = ["0000ffe0-0000-1000-8000-00805f9b34fb", "0000ffd0-0000-1000-8000-00805f9b34fb", "0000ffd5-0000-1000-8000-00805f9b34fb"];
-const errText = (e) => (e && (e.message || e.name)) || String(e);
-const CMD = {
-  login1: [0x7e, 0x07, 0x83],
-  login2: [0x7e, 0x04, 0x04],
-  on:  [0x7e, 0x04, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
-  off: [0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-  color: (r, g, b) => [0x7e, 0x00, 0x05, 0x03, r, g, b, 0x00, 0xef],
-  brightness: (pct) => [0x7e, 0x04, 0x01, pct, 0x01, 0xff, 0xff, 0x00, 0xef],
-};
-
-const $ = (id) => document.getElementById(id);
-const hex = (a) => a.map((b) => b.toString(16).padStart(2, "0")).join(" ");
-function log(msg) {
-  const el = $("log");
-  el.textContent = (new Date().toLocaleTimeString() + "  " + msg + "\n" + el.textContent).slice(0, 4000);
-}
-
-let device = null, ch = null, busy = false;
-
-async function write(bytes) {
-  if (!ch) return false;
-  const data = new Uint8Array(bytes);
-  if (ch.writeValueWithoutResponse) await ch.writeValueWithoutResponse(data);
-  else await ch.writeValue(data);
-  return true;
-}
-// Drop a frame instead of queueing when the radio is still busy, so the lights never lag behind the music.
-async function writeLatest(bytes) {
-  if (busy || !ch) return;
-  busy = true;
-  try { await write(bytes); } catch (e) { log("write failed: " + errText(e)); }
-  finally { busy = false; }
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function setConnected(ok, text) {
-  $("dot").classList.toggle("on", ok);
-  $("status").textContent = text;
-  for (const id of ["go", "testRed", "off"]) $(id).disabled = !ok;
-  $("connect").textContent = ok ? "Disconnect" : "Connect to lights";
-}
-
-async function connect() {
-  if (device && device.gatt.connected) { stop(); device.gatt.disconnect(); return; }
-  const optional = [SERVICE, ...ALT_SERVICES];
-  const filtered = { filters: [{ namePrefix: "MELK" }, { namePrefix: "OA" }, { namePrefix: "ELK" }], optionalServices: optional };
-  const all = { acceptAllDevices: true, optionalServices: optional };
-  let step = "choosing device";
-  try {
-    setConnected(false, "Choose your lights in the list…");
-    try {
-      device = await navigator.bluetooth.requestDevice($("showAll").checked ? all : filtered);
-    } catch (e) {
-      if (e && e.name === "NotFoundError") throw e;
-      log("filtered search failed (" + errText(e) + "), showing all devices");
-      device = await navigator.bluetooth.requestDevice(all);
-    }
-    log("picked: " + (device.name || "(no name)"));
-    device.addEventListener("gattserverdisconnected", () => { ch = null; stop(); setConnected(false, "Disconnected"); });
-    step = "connecting";
-    setConnected(false, "Connecting to " + (device.name || "device") + "…");
-    const server = await device.gatt.connect();
-    step = "finding the lights' control channel";
-    ch = await findWriteChar(server);
-    step = "sending hello";
-    // MELK controllers drop the link unless this handshake comes first.
-    await write(CMD.login1); await sleep(300);
-    await write(CMD.login2); await sleep(300);
-    await write(CMD.on);
-    log("connected to " + device.name);
-    setConnected(true, "Connected to " + (device.name || "lights"));
-  } catch (e) {
-    log("failed while " + step + ": " + errText(e));
-    setConnected(false, e && e.name === "NotFoundError" ? "No device chosen" : "Couldn't connect while " + step + ": " + errText(e));
-  }
-}
-
-// Use FFF0/FFF3 when present; otherwise log what the device offers and pick its first writable characteristic.
-async function findWriteChar(server) {
-  try {
-    const svc = await server.getPrimaryService(SERVICE);
-    return await svc.getCharacteristic(WRITE_CHAR);
-  } catch (e) {
-    log("FFF3 not found (" + errText(e) + "), scanning services");
-  }
-  let fallback = null;
-  for (const uuid of ALT_SERVICES) {
-    let svc;
-    try { svc = await server.getPrimaryService(uuid); } catch { continue; }
-    const chars = await svc.getCharacteristics();
-    for (const c of chars) {
-      const p = c.properties;
-      log("svc " + uuid.slice(4, 8) + " char " + c.uuid.slice(4, 8) + (p.write ? " write" : "") + (p.writeWithoutResponse ? " writeNR" : "") + (p.notify ? " notify" : ""));
-      if (!fallback && (p.write || p.writeWithoutResponse)) fallback = c;
-    }
-  }
-  if (!fallback) throw new Error("no writable characteristic found");
-  log("using " + fallback.uuid);
-  return fallback;
-}
-
-// ---- Settings ----
-const state = { style: "pulse", method: "color" };
-function seg(id, key) {
-  $(id).addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b) return;
-    state[key] = b.dataset.v;
-    for (const x of $(id).children) x.classList.toggle("sel", x === b);
-    if (key === "method" && running) prime();
-  });
-}
-seg("style", "style"); seg("method", "method");
-function bindRange(id, fmt) { const f = () => ($(id + "V").textContent = fmt($(id).value)); $(id).addEventListener("input", f); f(); }
-bindRange("sens", (v) => v + "%"); bindRange("floor", (v) => v + "%"); bindRange("bass", (v) => v + "%"); bindRange("rate", (v) => v);
-
-// ---- Audio analysis ----
-let ctx, analyser, stream, freq, timeBuf, raf, running = false;
-let env = 0, peak = 0.02, noise = 0.003, lastSent = -1, lastSendAt = 0, blinkOn = false, blinkUntil = 0, prevEnergy = 0;
-
-async function start() {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-    });
-  } catch (e) { log("mic: " + errText(e)); $("status").textContent = "Microphone permission is needed"; return; }
-  ctx = new (window.AudioContext || window.webkitAudioContext)();
-  await ctx.resume();
-  const src = ctx.createMediaStreamSource(stream);
-  analyser = ctx.createAnalyser();
-  analyser.fftSize = 1024;
-  analyser.smoothingTimeConstant = 0.2;
-  src.connect(analyser);
-  freq = new Uint8Array(analyser.frequencyBinCount);
-  timeBuf = new Float32Array(analyser.fftSize);
-  running = true;
-  $("go").textContent = "Stop";
-  await prime();
-  try { await navigator.wakeLock?.request("screen"); } catch {}
-  loop();
-}
-
-// Put the lights in a known state: on, full red at full brightness.
-async function prime() {
-  busy = true;
-  try {
-    await write(CMD.on);
-    if (state.method === "color") { await write(CMD.brightness(100)); }
-    else { await write(CMD.color(255, 0, 0)); }
-  } catch (e) { log("prime: " + errText(e)); }
-  busy = false; lastSent = -1;
-}
-
-function stop() {
-  running = false;
-  cancelAnimationFrame(raf);
-  stream?.getTracks().forEach((t) => t.stop());
-  ctx?.close(); ctx = null;
-  $("go").textContent = "Start";
-  $("orb").style.opacity = 0.08;
-}
-
-// Loudness 0..1 that adapts to the room: tracks a slowly falling peak and a noise floor.
-function measure() {
-  analyser.getFloatTimeDomainData(timeBuf);
-  let sum = 0;
-  for (let i = 0; i < timeBuf.length; i++) sum += timeBuf[i] * timeBuf[i];
-  const rms = Math.sqrt(sum / timeBuf.length);
-
-  analyser.getByteFrequencyData(freq);
-  const hzPerBin = ctx.sampleRate / analyser.fftSize;
-  const lo = Math.max(1, Math.floor(40 / hzPerBin)), hi = Math.ceil(180 / hzPerBin);
-  let b = 0; for (let i = lo; i <= hi; i++) b += freq[i];
-  const bass = Math.pow(b / ((hi - lo + 1) * 255), 2) * 0.25; // scaled to sit near rms values
-
-  const mix = +$("bass").value / 100;
-  const energy = rms * (1 - mix) + bass * mix;
-
-  noise = energy < noise ? noise * 0.9 + energy * 0.1 : noise * 0.999 + energy * 0.001;
-  peak = Math.max(energy, peak * 0.995, noise * 2 + 0.002);
-  const sens = +$("sens").value / 100;               // higher = reacts to quieter sound
-  const ceiling = noise + (peak - noise) * (1.15 - sens * 0.85);
-  return { level: Math.min(1, Math.max(0, (energy - noise) / Math.max(1e-4, ceiling - noise))), energy };
-}
-
-function loop() {
-  if (!running) return;
-  raf = requestAnimationFrame(loop);
-  const now = performance.now();
-  const { level, energy } = measure();
-  const floor = +$("floor").value / 100;
-  let out;
-
-  if (state.style === "pulse") {
-    env = level > env ? env + (level - env) * 0.7 : env + (level - env) * 0.12; // fast attack, soft release
-    out = floor + (1 - floor) * Math.pow(env, 1.6);
-  } else {
-    // Blink: flash on a sudden jump in energy, hold briefly, otherwise sit at the floor.
-    const jump = energy - prevEnergy;
-    if (level > 0.55 && jump > (peak - noise) * 0.12 && now > blinkUntil - 40) { blinkOn = true; blinkUntil = now + 110; }
-    if (now > blinkUntil) blinkOn = false;
-    out = blinkOn ? 1 : floor;
-  }
-  prevEnergy = energy * 0.6 + prevEnergy * 0.4;
-  $("orb").style.opacity = Math.max(0.08, out).toFixed(3);
-
-  const interval = 1000 / +$("rate").value;
-  if (now - lastSendAt < interval) return;
-  const value = state.method === "color" ? Math.round(out * 255) : Math.round(out * 100);
-  if (value === lastSent && now - lastSendAt < 1000) return;
-  lastSendAt = now; lastSent = value;
-  writeLatest(state.method === "color" ? CMD.color(value, 0, 0) : CMD.brightness(value));
-}
-
-// ---- Buttons ----
-$("connect").onclick = connect;
-$("go").onclick = () => (running ? stop() : start());
-$("testRed").onclick = async () => { stop(); busy = true; try { await write(CMD.on); await write(CMD.brightness(100)); await write(CMD.color(255, 0, 0)); log("sent solid red"); } finally { busy = false; } };
-$("off").onclick = async () => { stop(); busy = true; try { await write(CMD.off); log("sent off"); } finally { busy = false; } };
-
-if (!navigator.bluetooth) { $("unsupported").hidden = false; $("connect").disabled = true; }
-log("protocol: on=" + hex(CMD.on) + "  red=" + hex(CMD.color(255, 0, 0)));
-</script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

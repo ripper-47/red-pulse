@@ -1,0 +1,51 @@
+:root {
+  --bg: #0b0507;
+  --panel: #170b0e;
+  --line: #2e1519;
+  --text: #f4e9ea;
+  --muted: #a88a8e;
+  --red: #ff2a3d;
+  --red-dim: #5a141b;
+  --ok: #4ade80;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  max-width: 520px; margin: 0 auto;
+}
+h1 { font-size: 22px; margin: 4px 0 2px; letter-spacing: .2px; }
+.sub { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+.row { display: flex; align-items: center; gap: 10px; }
+.status { font-size: 14px; color: var(--muted); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #555; flex: none; }
+.dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+button {
+  font: inherit; font-weight: 600; color: var(--text); background: #2a1216;
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; width: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+button:active { transform: scale(.98); }
+button.primary { background: var(--red); border-color: var(--red); color: #fff; }
+button:disabled { opacity: .45; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#orb {
+  width: 180px; height: 180px; border-radius: 50%; margin: 6px auto 14px;
+  background: radial-gradient(circle at 50% 45%, var(--red), #7a0d16 70%);
+  opacity: .08; transition: opacity 40ms linear;
+  box-shadow: 0 0 60px var(--red);
+}
+#go { font-size: 18px; padding: 16px; }
+label { display: block; font-size: 14px; color: var(--muted); margin: 14px 0 6px; }
+label span { float: right; color: var(--text); }
+input[type=range] { width: 100%; accent-color: var(--red); }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); }
+.seg button.sel { background: var(--red-dim); color: var(--text); }
+details summary { color: var(--muted); font-size: 14px; cursor: pointer; }
+#log { font: 12px/1.35 ui-monospace, Menlo, monospace; color: var(--muted); white-space: pre-wrap; max-height: 180px; overflow: auto; margin-top: 10px; }
+.warn { color: #fbbf24; font-size: 14px; }
+select { font: inherit; color: var(--text); background: #2a1216; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; width: 100%; }
+.mode-desc { color: var(--muted); font-size: 14px; margin: 8px 0 4px; }
