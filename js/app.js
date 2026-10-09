@@ -93,6 +93,25 @@ function renderSettings() {
       show();
       row.append(minus, val, plus);
       box.append(row);
+    } else if (s.type === "swatches") {
+      // Tap colors on or off; at least one always stays on.
+      const grid = document.createElement("div");
+      grid.className = "swatches";
+      for (const [value, name, hex] of s.options) {
+        const b = Object.assign(document.createElement("button"), { title: name });
+        b.style.background = hex;
+        b.append(Object.assign(document.createElement("span"), { textContent: name }));
+        b.classList.toggle("sel", app.settings[s.key].includes(value));
+        b.onclick = () => {
+          const on = app.settings[s.key];
+          if (on.includes(value)) { if (on.length === 1) return; app.settings[s.key] = on.filter((v) => v !== value); }
+          else app.settings[s.key] = [...on, value];
+          b.classList.toggle("sel", app.settings[s.key].includes(value));
+          save();
+        };
+        grid.append(b);
+      }
+      box.append(grid);
     } else if (s.type === "color") {
       const input = Object.assign(document.createElement("input"), { type: "color", value: app.settings[s.key] });
       input.oninput = () => { app.settings[s.key] = input.value; save(); };

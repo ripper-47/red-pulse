@@ -1,17 +1,23 @@
 // Each beat flashes the strip in a new random deep color, which fades to pitch black before the next one.
 import { AdaptiveLevel } from "../audio.js";
 
-// LED values for each palette color (the strip glows brighter than these look on screen).
-const PALETTE = [
-  [255, 0, 0],    // Deep red
-  [0, 0, 255],    // Dark blue
-  [120, 0, 255],  // Purple
-  [255, 0, 110],  // Wine magenta
-  [50, 0, 255],   // Indigo
-  [255, 0, 35],   // Crimson
-  [180, 0, 200],  // Plum
-  [255, 50, 0],   // Burnt orange
+// Every color on offer: id, name, how it looks on screen, and the LED values sent to the strip
+// (the strip glows brighter than the on-screen swatch).
+const COLORS = [
+  ["red", "Deep red", "#8b0000", [255, 0, 0]],
+  ["blue", "Dark blue", "#00008b", [0, 0, 255]],
+  ["purple", "Purple", "#4b0082", [120, 0, 255]],
+  ["wine", "Wine magenta", "#7a0045", [255, 0, 110]],
+  ["indigo", "Indigo", "#2e0a7a", [50, 0, 255]],
+  ["teal", "Dark teal", "#005c5c", [0, 160, 140]],
+  ["emerald", "Emerald", "#005a14", [0, 255, 50]],
+  ["orange", "Burnt orange", "#8a2a00", [255, 50, 0]],
+  ["crimson", "Crimson", "#7a0018", [255, 0, 35]],
+  ["ocean", "Ocean blue", "#003a8a", [0, 80, 255]],
+  ["plum", "Plum", "#5a0070", [180, 0, 200]],
+  ["gold", "Dark gold", "#7a5a00", [255, 140, 0]],
 ];
+const LED = Object.fromEntries(COLORS.map(([id, , , rgb]) => [id, rgb]));
 
 export default {
   id: "dark-colors",
@@ -19,6 +25,7 @@ export default {
   description: "Each beat flashes a new deep color, with pitch black in between.",
   usesMic: true,
   settings: [
+    { key: "colors", label: "Colors", type: "swatches", options: COLORS, default: ["red", "blue", "purple", "wine", "orange"] },
     { key: "sens", label: "Sensitivity", type: "range", min: 0, max: 100, default: 60, unit: "%" },
     { key: "bass", label: "Bass focus", type: "range", min: 0, max: 100, default: 70, unit: "%" },
     { key: "gap", label: "Min time between colors", type: "range", min: 100, max: 1500, default: 250, unit: " ms" },
@@ -28,12 +35,12 @@ export default {
   create() {
     const adaptive = new AdaptiveLevel();
     let prevEnergy = 0, lastSwitch = -Infinity;
-    let current = Math.floor(Math.random() * PALETTE.length);
+    let current = null;
 
-    // Any color except the one showing now.
-    const nextColor = () => {
-      const i = Math.floor(Math.random() * (PALETTE.length - 1));
-      return i >= current ? i + 1 : i;
+    // A random chosen color, never the one showing now (unless it's the only one chosen).
+    const nextColor = (chosen) => {
+      const pool = chosen.filter((id) => id !== current && LED[id]);
+      return pool.length ? pool[Math.floor(Math.random() * pool.length)] : current;
     };
 
     return {
@@ -45,7 +52,7 @@ export default {
         // Beat: a loud moment with a sudden jump in energy, spaced at least `gap` apart.
         const jump = energy - prevEnergy;
         if (level > 0.55 && jump > (adaptive.peak - adaptive.noise) * 0.12 && now - lastSwitch > settings.gap) {
-          current = nextColor();
+          current = nextColor(settings.colors);
           lastSwitch = now;
         }
         prevEnergy = energy * 0.6 + prevEnergy * 0.4;
@@ -54,7 +61,8 @@ export default {
         // Capped below the gap so there is always a moment of black before the next color.
         const flash = Math.min(settings.flash, settings.gap * 0.7);
         const out = Math.max(0, 1 - (now - lastSwitch) / flash);
-        const [r, g, b] = PALETTE[current];
+        if (!current) return { r: 0, g: 0, b: 0 };
+        const [r, g, b] = LED[current];
         return { r: r * out, g: g * out, b: b * out };
       },
     };
