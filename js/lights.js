@@ -64,6 +64,8 @@ export class Lights {
 
   // Several commands in a row, holding off live frames until they're done.
   async send(...commands) {
+    // Let a live frame already on its way finish first, so two writes never overlap.
+    for (let i = 0; this.busy && i < 20; i++) await sleep(20);
     this.busy = true;
     try { for (const c of commands) await this.write(c); }
     catch (e) { this.log("send failed: " + errText(e)); }

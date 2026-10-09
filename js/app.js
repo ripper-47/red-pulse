@@ -26,7 +26,7 @@ function setConnected(ok, text) {
 }
 
 async function connect() {
-  if (lights.connected) { stop(); lights.disconnect(); return; }
+  if (lights.connected) { await stop(); lights.disconnect(); return; }
   try {
     await lights.connect({
       showAll: $("showAll").checked,
@@ -144,13 +144,17 @@ async function prime() {
   lastKey = ""; lastBase = ""; lastOut = { r: 0, g: 0, b: 0 };
 }
 
+// The controller remembers the last brightness command, so a dim level left behind here would also
+// dim Magic Lantern and the built-in effects. Leaving a mode always puts it back to full.
 function stop() {
+  const wasRunning = app.running;
   app.running = false;
   cancelAnimationFrame(app.raf);
   app.mic?.stop(); app.mic = null;
   app.instance?.stop?.(); app.instance = null;
   $("go").textContent = "Start";
   $("orb").style.opacity = 0.08;
+  if (wasRunning && lights.connected) return lights.send(CMD.brightness(100));
 }
 
 function loop() {
@@ -207,8 +211,11 @@ $("rate").oninput = showRate; showRate();
 
 $("connect").onclick = connect;
 $("go").onclick = () => (app.running ? stop() : start());
-$("testRed").onclick = async () => { stop(); await lights.send(CMD.on, CMD.brightness(100), CMD.color(255, 0, 0)); log("sent solid red"); };
-$("off").onclick = async () => { stop(); await lights.send(CMD.off); log("sent off"); };
+$("testRed").onclick = async () => { await stop(); await lights.send(CMD.on, CMD.brightness(100), CMD.color(255, 0, 0)); log("sent solid red"); };
+$("off").onclick = async () => { await stop(); await lights.send(CMD.off); log("sent off"); };
+
+// Closing or leaving the page skips stop(), so send full brightness on the way out too.
+addEventListener("pagehide", () => { if (lights.connected) lights.write(CMD.brightness(100)).catch(() => {}); });
 
 if (!Lights.supported) { $("unsupported").hidden = false; $("connect").disabled = true; }
 log("protocol: on=" + hex(CMD.on) + "  red=" + hex(CMD.color(255, 0, 0)));
