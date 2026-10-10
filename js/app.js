@@ -53,6 +53,8 @@ function selectMode(id) {
     b.setAttribute("aria-selected", on);
   }
   $("modeDesc").textContent = app.mode.description || "";
+  // "Sound from" means nothing to a mode that always shares the screen.
+  $("sourceBox").hidden = !canShareAudio || !!app.mode.sharesScreen;
   renderSettings();
   showPalette();
   store.set("mode", app.mode.id);
@@ -199,12 +201,15 @@ async function start() {
 
 async function begin() {
   if (app.mode.usesMic) {
+    // A mode that follows the screen (Movie) always shares it, whatever "Sound from" says.
+    const source = app.mode.sharesScreen ? "share" : app.source;
+    if (app.mode.sharesScreen && !canShareAudio) { startError(app.mode.name + " needs Chrome or Edge on a computer, to see the screen"); return; }
     app.mic = new Mic();
-    const ended = () => { stop(); $("status").textContent = "Sharing stopped. Press Start to share the sound again"; };
-    try { await app.mic.start(app.source, ended, { sharp: app.mode.usesScreen, log }); }
+    const ended = () => { stop(); $("status").textContent = "Sharing stopped. Press Start to share again"; };
+    try { await app.mic.start(source, ended, { sharp: app.mode.usesScreen, fps: app.mode.screenFps, log }); }
     catch (e) {
-      log((app.source === "share" ? "share: " : "mic: ") + errText(e));
-      startError(app.source === "share" ? "Sound wasn't shared (" + errText(e) + ")" : "Microphone permission is needed");
+      log((source === "share" ? "share: " : "mic: ") + errText(e));
+      startError(source === "share" ? (app.mode.sharesScreen ? "Screen" : "Sound") + " wasn't shared (" + errText(e) + ")" : "Microphone permission is needed");
       app.mic = null; return;
     }
   }
@@ -317,7 +322,6 @@ $("method").addEventListener("click", (e) => {
   if (app.running) prime();
 });
 // Sound source: only offered where the browser can share a tab's or the computer's sound.
-$("sourceBox").hidden = !canShareAudio;
 const setSource = (v) => {
   app.source = canShareAudio && v === "share" ? "share" : "mic";
   for (const x of $("source").children) x.classList.toggle("sel", x.dataset.v === app.source);
