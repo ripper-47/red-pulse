@@ -122,6 +122,9 @@ function renderSettings() {
         grid.append(b);
       }
       field.append(grid);
+    } else if (s.type === "custom") {
+      // The mode draws this control itself.
+      s.render(field, { get: () => app.settings[s.key], set: (v) => { app.settings[s.key] = v; save(); }, settings: app.settings });
     } else if (s.type === "color") {
       const input = Object.assign(document.createElement("input"), { type: "color", value: app.settings[s.key] });
       input.oninput = () => { app.settings[s.key] = input.value; save(); };
@@ -140,17 +143,17 @@ const MIN_GAP_MS = 45;
 let lastHue = "", lastKey = "", lastSendAt = 0, lastBase = "", lastOut = { r: 0, g: 0, b: 0 };
 
 async function start() {
-  app.instance = app.mode.create(app.settings);
   if (app.mode.usesMic) {
     app.mic = new Mic();
     const ended = () => { stop(); $("status").textContent = "Sharing stopped. Press Start to share the sound again"; };
-    try { await app.mic.start(app.source, ended, log); }
+    try { await app.mic.start(app.source, ended, { sharp: app.mode.usesScreen, log }); }
     catch (e) {
       log((app.source === "share" ? "share: " : "mic: ") + errText(e));
       $("status").textContent = app.source === "share" ? "Sound wasn't shared (" + errText(e) + ")" : "Microphone permission is needed";
       app.mic = null; return;
     }
   }
+  app.instance = app.mode.create({ stream: app.mic?.stream });
   app.running = true;
   setRunning(true);
   $("status").textContent = "Connected to " + lights.name; // clear any message left by an earlier failed start

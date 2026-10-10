@@ -5,6 +5,7 @@ A web app for the OA10 rope lights, run from the iPhone in the Bluefy browser. L
 Modes so far:
 - **Red Pulse**: all red, pulsing or blinking with sound from the iPhone mic.
 - **Dark Colors**: each beat flashes a random deep color, then the lights go off until the next beat (snap off by default, or fade out). Tap the color swatches to choose which of the 12 colors it uses (default: deep red, dark blue, purple, wine magenta, burnt orange).
+- **Album Art**: like Dark Colors, but the colors come from the album cover of the song playing. On a Mac, set Sound from to "Music on this computer", press Start, share the screen showing Spotify or Music, then drag a box around the cover in the preview; it's re-read every second, so the colors change with the song. On iPhone (or anywhere), choose a picture of the cover instead, such as a screenshot of Now Playing.
 - **Built-in Effects**: steps through the controller's own patterns (effect numbers 0-255), including multi-color ones.
 
 ## Why a web page
@@ -54,8 +55,10 @@ export default {
     { key: "style", label: "Style", type: "choice", options: [["a", "A"], ["b", "B"]], default: "a" },
     { key: "tint", label: "Color", type: "color", default: "#ff0000" },
     { key: "pick", label: "Colors", type: "swatches", options: [["red", "Red", "#8b0000"]], default: ["red"] },
+    { key: "art", label: "Cover", type: "custom", default: {}, render(field, { get, set, settings }) {} }, // mode draws its own control
   ],
-  create() {                   // called on Start; keep per-run state in this closure
+  create({ stream }) {         // called on Start; stream is the shared screen and sound when "Music on this computer" is on
+                               // (set usesScreen: true to get a sharp enough picture to read from, see artwork.js)
     return {
       frame({ audio, now, settings }) {   // every animation frame; audio is null when usesMic is false
         return { r: 255, g: 0, b: 0 };    // 0-255 each, or null to send nothing this frame
