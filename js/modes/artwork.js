@@ -172,13 +172,13 @@ export function paletteOf(data, count) {
 }
 
 // A pure, fully saturated color for a hue (0..1, wraps), as 0-255 LED values.
-function fromHue(hue) {
+export function fromHue(hue) {
   const h = (((hue % 1) + 1) % 1) * 6;
   const f = (n) => { const k = (n + h) % 6; return Math.round(255 * (1 - Math.max(0, Math.min(k, 4 - k, 1)))); };
   return [f(5), f(3), f(1)];
 }
 
-function hueOf(r, g, b, max, min) {
+export function hueOf(r, g, b, max, min) {
   const d = max - min || 1;
   const h = max === r ? (g - b) / d : max === g ? 2 + (b - r) / d : 4 + (r - g) / d;
   return ((h / 6) % 1 + 1) % 1;
@@ -199,7 +199,7 @@ function vivid([r, g, b]) {
 
 // Keeps the latest picture of the shared screen. Chrome's track processor keeps delivering frames while the
 // tab is in the background; a video element is the fallback.
-function watchScreen(track) {
+export function watchScreen(track) {
   const s = { frame: null, w: 0, h: 0, stop() {} };
   if (window.MediaStreamTrackProcessor) {
     const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
