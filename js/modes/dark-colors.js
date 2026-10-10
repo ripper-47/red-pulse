@@ -1,4 +1,4 @@
-// Each beat flashes the strip in a new random deep color, which fades to pitch black before the next one.
+// Each beat flashes the strip in a new random deep color, then it goes pitch black until the next one.
 import { AdaptiveLevel } from "../audio.js";
 
 // Every color on offer: id, name, how it looks on screen, and the LED values sent to the strip
@@ -22,10 +22,11 @@ const LED = Object.fromEntries(COLORS.map(([id, , , rgb]) => [id, rgb]));
 export default {
   id: "dark-colors",
   name: "Dark Colors",
-  description: "Each beat flashes a new deep color, with pitch black in between.",
+  description: "Each beat flashes a new deep color, then the lights go off until the next beat.",
   usesMic: true,
   settings: [
     { key: "colors", label: "Colors", type: "swatches", options: COLORS, default: ["red", "blue", "purple", "wine", "orange"] },
+    { key: "style", label: "Between beats", type: "choice", options: [["cut", "Snap off"], ["fade", "Fade out"]], default: "cut" },
     { key: "sens", label: "Sensitivity", type: "range", min: 0, max: 100, default: 60, unit: "%" },
     { key: "bass", label: "Bass focus", type: "range", min: 0, max: 100, default: 70, unit: "%" },
     { key: "gap", label: "Min time between colors", type: "range", min: 100, max: 1500, default: 250, unit: " ms" },
@@ -57,10 +58,12 @@ export default {
         }
         prevEnergy = energy * 0.6 + prevEnergy * 0.4;
 
-        // Full color the instant the beat lands, fading to black over the flash length.
-        // Capped below the gap so there is always a moment of black before the next color.
-        const flash = Math.min(settings.flash, settings.gap * 0.7);
-        const out = Math.max(0, 1 - (now - lastSwitch) / flash);
+        // Full color the instant the beat lands, then black after the flash length: snapped off, or faded.
+        // A fade's dim tail still looks lit on LEDs, so snapping off is what reads as "off between beats".
+        // Capped below the gap so there is always a stretch of black before the next color.
+        const flash = Math.min(settings.flash, settings.gap * 0.6);
+        const t = (now - lastSwitch) / flash;
+        const out = settings.style === "fade" ? Math.max(0, 1 - t) : t < 1 ? 1 : 0;
         if (!current) return { r: 0, g: 0, b: 0 };
         const [r, g, b] = LED[current];
         return { r: r * out, g: g * out, b: b * out };

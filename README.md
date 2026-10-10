@@ -4,7 +4,7 @@ A web app for the OA10 rope lights, run from the iPhone in the Bluefy browser. L
 
 Modes so far:
 - **Red Pulse**: all red, pulsing or blinking with sound from the iPhone mic.
-- **Dark Colors**: each beat flashes a random deep color that fades to pitch black before the next one. Tap the color swatches to choose which of the 12 colors it uses (default: deep red, dark blue, purple, wine magenta, burnt orange).
+- **Dark Colors**: each beat flashes a random deep color, then the lights go off until the next beat (snap off by default, or fade out). Tap the color swatches to choose which of the 12 colors it uses (default: deep red, dark blue, purple, wine magenta, burnt orange).
 - **Built-in Effects**: steps through the controller's own patterns (effect numbers 0-255), including multi-color ones.
 
 ## Why a web page
