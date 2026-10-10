@@ -1,6 +1,6 @@
 // Each beat flashes a color taken from the album cover of the song playing, then the lights go black.
-// The cover comes from the shared screen (a box drawn around it, re-read every second so it follows the
-// song) or from a picture chosen on the device.
+// The cover comes from the Music app on a Mac (through helper/now-playing.py), from the shared screen
+// (a box drawn around it, re-read every second so it follows the song), or from a picture chosen on the device.
 import { canShareAudio } from "../audio.js";
 import { FLASH_SETTINGS, beatFlasher, pickOther } from "./flash.js";
 
@@ -11,6 +11,11 @@ const SAMPLE_MS = 1000;
 // Shared between the running mode and its settings panel.
 const live = { screen: null, picture: null, pictureSrc: "", palette: [], view: null };
 
+// The Mac helper that reports what the Music app is playing (helper/now-playing.py).
+const HELPER = "http://127.0.0.1:47800";
+export const HELPER_CMD = "curl -fsSL https://ripper-47.github.io/red-pulse/helper/now-playing.py | python3 -";
+const music = { img: null, song: null, state: "idle", busy: false, lastPoll: -Infinity };
+
 export default {
   id: "artwork",
   name: "Album Art",
@@ -18,7 +23,7 @@ export default {
   usesMic: true,
   usesScreen: true, // asks for a sharper screen picture when sharing, so a small cover can be read
   settings: [
-    { key: "art", label: "Album cover", type: "custom", default: { use: canShareAudio ? "screen" : "picture", screen: null, picture: null, crop: null }, render },
+    { key: "art", label: "Album cover", type: "custom", default: { use: canShareAudio ? "music" : "picture", screen: null, picture: null, crop: null }, render },
     { key: "count", label: "Colors per cover", type: "range", min: 1, max: 6, default: 4 },
     ...FLASH_SETTINGS,
   ],
@@ -51,6 +56,10 @@ export default {
 
 // The image and the box (fractions of it) the colors come from right now, or null.
 function source(art) {
+  if (art.use === "music") {
+    const img = music.img;
+    return img ? { img, w: img.width, h: img.height, box: { x: 0, y: 0, w: 1, h: 1 } } : null;
+  }
   if (art.use === "screen") {
     const s = live.screen;
     return s?.frame && art.screen ? { img: s.frame, w: s.w, h: s.h, box: art.screen } : null;
@@ -64,6 +73,7 @@ sampler.width = sampler.height = 40;
 const sctx = sampler.getContext("2d", { willReadFrequently: true });
 
 function refresh(settings) {
+  if (settings.art.use === "music") pollMusic();
   const src = source(settings.art);
   if (src) {
     const { img, w, h, box } = src;
@@ -73,6 +83,28 @@ function refresh(settings) {
     live.palette = [];
   }
   live.view?.draw();
+}
+
+// Asks the helper what's playing every two seconds, and fetches the cover when the song changes.
+async function pollMusic() {
+  const now = performance.now();
+  if (music.busy || now - music.lastPoll < 1500) return;
+  music.busy = true; music.lastPoll = now;
+  const before = music.state + (music.song?.id || "");
+  try {
+    const song = await (await fetch(HELPER + "/now", { cache: "no-store" })).json();
+    music.state = song.playing ? "playing" : "paused";
+    if (song.playing && song.id !== music.song?.id) {
+      const r = await fetch(HELPER + "/art", { cache: "no-store" });
+      music.img = r.ok ? await createImageBitmap(await r.blob()) : null;
+      music.song = song;
+    }
+  } catch {
+    music.state = "nohelper";
+  } finally {
+    music.busy = false;
+  }
+  if (music.state + (music.song?.id || "") !== before) live.view?.changed();
 }
 
 // The cover's main colors, most prominent first, made vivid for the LEDs (they can't show dark or gray).
@@ -186,19 +218,31 @@ function shrink(file) {
 function render(field, ctx) {
   const el = (tag, cls, props) => Object.assign(document.createElement(tag), cls ? { className: cls } : {}, props);
   const seg = el("div", "seg");
-  const screenBtn = el("button", "", { textContent: "From the screen" });
-  const pictureBtn = el("button", "", { textContent: "From a picture" });
-  seg.append(screenBtn, pictureBtn);
+  const musicBtn = el("button", "", { textContent: "Music app" });
+  const screenBtn = el("button", "", { textContent: "Screen" });
+  const pictureBtn = el("button", "", { textContent: "Picture" });
+  seg.append(musicBtn, screenBtn, pictureBtn);
+  seg.style.gridTemplateColumns = "repeat(3, 1fr)";
   const canvas = el("canvas", "art-view");
   const note = el("p", "hint");
   const chips = el("div", "art-chips");
   const file = el("input", "", { type: "file", accept: "image/*", hidden: true });
   const choose = el("button", "art-choose", { textContent: "Choose a picture" });
+  // Setup for the Music app helper, shown until it answers.
+  const setup = el("div", "art-setup");
+  const cmd = el("code", "", { textContent: HELPER_CMD });
+  const copy = el("button", "art-choose", { textContent: "Copy command" });
+  copy.onclick = async () => {
+    try { await navigator.clipboard.writeText(HELPER_CMD); copy.textContent = "Copied"; }
+    catch { getSelection().selectAllChildren(cmd); }
+  };
+  setup.append(cmd, copy);
   if (canShareAudio) field.append(seg);
-  field.append(canvas, note, chips, choose, file);
+  field.append(canvas, note, setup, chips, choose, file);
 
   const art = () => ctx.get();
   const update = (patch) => { ctx.set({ ...art(), ...patch }); view.changed(); };
+  musicBtn.onclick = () => update({ use: "music" });
   screenBtn.onclick = () => update({ use: "screen" });
   pictureBtn.onclick = () => update({ use: "picture" });
   choose.onclick = () => file.click();
@@ -215,7 +259,7 @@ function render(field, ctx) {
     const r = canvas.getBoundingClientRect();
     return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
   };
-  canvas.onpointerdown = (e) => { canvas.setPointerCapture(e.pointerId); drag = { from: at(e), box: null }; };
+  canvas.onpointerdown = (e) => { if (art().use === "music") return; canvas.setPointerCapture(e.pointerId); drag = { from: at(e), box: null }; };
   canvas.onpointermove = (e) => {
     if (!drag) return;
     const [x0, y0] = drag.from, [x1, y1] = at(e);
@@ -228,17 +272,26 @@ function render(field, ctx) {
     else view.draw();
   };
 
+  // While stopped, keep checking the Music app so the cover and colors show before Start.
+  const poll = setInterval(() => {
+    if (!canvas.isConnected) clearInterval(poll);
+    else if (art().use === "music") pollMusic();
+  }, 2000);
+
   const view = {
     // Settings changed: re-read the colors now instead of waiting for the next sample.
     changed() { refresh(ctx.settings); },
     draw() {
-      if (!canvas.isConnected) { if (live.view === view) live.view = null; return; }
+      if (!canvas.isConnected) { if (live.view === view) live.view = null; clearInterval(poll); return; }
       const a = art();
+      musicBtn.classList.toggle("sel", a.use === "music");
       screenBtn.classList.toggle("sel", a.use === "screen");
       pictureBtn.classList.toggle("sel", a.use === "picture");
-      choose.hidden = a.use === "screen";
-      const img = a.use === "screen" ? live.screen?.frame : loadPicture(a.picture);
-      const w = a.use === "screen" ? live.screen?.w : img?.naturalWidth, h = a.use === "screen" ? live.screen?.h : img?.naturalHeight;
+      choose.hidden = a.use !== "picture";
+      const img = a.use === "music" ? music.img : a.use === "screen" ? live.screen?.frame : loadPicture(a.picture);
+      const [w, h] = a.use === "music" ? [img?.width, img?.height] : a.use === "screen" ? [live.screen?.w, live.screen?.h] : [img?.naturalWidth, img?.naturalHeight];
+      canvas.classList.toggle("art-cover", a.use === "music");
+      setup.hidden = !(a.use === "music" && music.state === "nohelper");
       canvas.hidden = !(img && w);
       if (!canvas.hidden) {
         canvas.width = 640; canvas.height = Math.round((640 * h) / w);
@@ -253,7 +306,12 @@ function render(field, ctx) {
         }
       }
       note.textContent =
-        a.use === "screen"
+        a.use === "music"
+          ? music.state === "nohelper" ? "To read covers from the Music app, run this in Terminal on your Mac and leave that window open while music plays. If Chrome asks to reach devices on your network, allow it."
+          : music.state === "idle" ? "Looking for the Music app…"
+          : music.state === "paused" ? "Music isn't playing. The colors follow the next song that plays."
+          : music.song ? `Now playing: ${music.song.title} · ${music.song.artist}${music.img ? "" : " (no cover found)"}` : ""
+          : a.use === "screen"
           ? !live.screen ? "With Sound from set to Music on this computer, press Start and share the screen showing Spotify or Music."
           : !w ? "Waiting for the shared screen…"
           : !a.screen ? "Drag a box around the album cover. The colors follow it each time the song changes."

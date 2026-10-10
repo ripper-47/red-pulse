@@ -5,7 +5,10 @@ A web app for the OA10 rope lights, run from the iPhone in the Bluefy browser. L
 Modes so far:
 - **Red Pulse**: all red, pulsing or blinking with sound from the iPhone mic.
 - **Dark Colors**: each beat flashes a random deep color, then the lights go off until the next beat (snap off by default, or fade out). Tap the color swatches to choose which of the 12 colors it uses (default: deep red, dark blue, purple, wine magenta, burnt orange).
-- **Album Art**: like Dark Colors, but the colors come from the album cover of the song playing. On a Mac, set Sound from to "Music on this computer", press Start, share the screen showing Spotify or Music, then drag a box around the cover in the preview; it's re-read every second, so the colors change with the song. On iPhone (or anywhere), choose a picture of the cover instead, such as a screenshot of Now Playing.
+- **Album Art**: like Dark Colors, but the colors come from the album cover of the song playing. Three ways to get the cover:
+  - **Music app** (Mac, automatic): run `curl -fsSL https://ripper-47.github.io/red-pulse/helper/now-playing.py | python3 -` in Terminal and leave it open. The helper (`helper/now-playing.py`) asks the Music app what's playing and hands its cover to the page on `127.0.0.1:47800`; songs without a cover in Music are looked up on the iTunes Store. The first time, macOS asks to let Terminal control Music, and Chrome may ask to reach devices on the network; allow both.
+  - **Screen**: set Sound from to "Music on this computer", press Start, share the screen showing Spotify or Music, then drag a box around the cover in the preview; it's re-read every second.
+  - **Picture** (iPhone or anywhere): choose a picture of the cover, such as a screenshot of Now Playing.
 - **Built-in Effects**: steps through the controller's own patterns (effect numbers 0-255), including multi-color ones.
 
 ## Why a web page
