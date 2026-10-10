@@ -54,6 +54,7 @@ function selectMode(id) {
   }
   $("modeDesc").textContent = app.mode.description || "";
   renderSettings();
+  showPalette();
   store.set("mode", app.mode.id);
 }
 
@@ -138,18 +139,73 @@ function fillRange(input) {
   input.style.setProperty("--fill", ((input.value - input.min) / (input.max - input.min)) * 100 + "%");
 }
 
+// ---- Palette preview: the colors the mode will flash, from its palette(settings) ----
+let paletteKey = "";
+const norm = (r, g, b) => { const p = Math.max(r, g, b) || 1; return [r, g, b].map((v) => Math.round((v / p) * 255)); };
+function showPalette() {
+  const list = app.mode.palette?.(app.settings) || [];
+  const key = list.map((c) => c.join()).join("|");
+  if (key === paletteKey) return;
+  paletteKey = key;
+  $("palette").replaceChildren(...list.map(([r, g, b]) => {
+    const chip = document.createElement("span");
+    chip.dataset.rgb = norm(r, g, b).join();
+    chip.style.background = chip.style.color = `rgb(${r},${g},${b})`;
+    return chip;
+  }));
+  $("palette").hidden = !list.length;
+}
+setInterval(showPalette, 500); // palettes can change on their own (Album Art follows the song)
+
+// Raises the chip for the color the lights are showing.
+let litChip = "";
+function markPalette(out) {
+  const peak = Math.max(out.r, out.g, out.b);
+  if (peak < 1) return;
+  const key = norm(out.r, out.g, out.b).join();
+  if (key === litChip) return;
+  litChip = key;
+  for (const c of $("palette").children) c.classList.toggle("on", c.dataset.rgb === key);
+}
+
 // ---- Run loop ----
 const MIN_GAP_MS = 45;
 let lastHue = "", lastKey = "", lastSendAt = 0, lastBase = "", lastOut = { r: 0, g: 0, b: 0 };
 
+// A failed start is reported under Start, where the click was, as well as in the connection status.
+function startError(text) {
+  $("status").textContent = text;
+  $("startError").textContent = text;
+  $("startError").hidden = !text;
+}
+
+// Waits for p, but no longer than ms; resolves to "timeout" then. Keeps a stuck step from freezing Start.
+const within = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r("timeout"), ms))]);
+
 async function start() {
+  if (app.starting) return; // a second click while the share window is open would start twice
+  app.starting = true;
+  $("go").disabled = true;
+  startError("");
+  try { await begin(); }
+  catch (e) {
+    log("start failed: " + errText(e));
+    startError("Couldn't start (" + errText(e) + ")");
+    stop();
+  } finally {
+    app.starting = false;
+    $("go").disabled = !lights.connected;
+  }
+}
+
+async function begin() {
   if (app.mode.usesMic) {
     app.mic = new Mic();
     const ended = () => { stop(); $("status").textContent = "Sharing stopped. Press Start to share the sound again"; };
     try { await app.mic.start(app.source, ended, { sharp: app.mode.usesScreen, log }); }
     catch (e) {
       log((app.source === "share" ? "share: " : "mic: ") + errText(e));
-      $("status").textContent = app.source === "share" ? "Sound wasn't shared (" + errText(e) + ")" : "Microphone permission is needed";
+      startError(app.source === "share" ? "Sound wasn't shared (" + errText(e) + ")" : "Microphone permission is needed");
       app.mic = null; return;
     }
   }
@@ -157,10 +213,11 @@ async function start() {
   app.running = true;
   setRunning(true);
   $("status").textContent = "Connected to " + lights.name; // clear any message left by an earlier failed start
-  await prime();
+  // Start the frames first: a Bluetooth write that never returns must not keep the lights from reacting.
   ticker.postMessage(16);
-  try { await navigator.wakeLock?.request("screen"); } catch {}
   loop();
+  if ((await within(prime(), 1500)) === "timeout") log("lights didn't answer the start commands, carrying on");
+  try { await within(navigator.wakeLock?.request("screen"), 1000); } catch {}
 }
 
 // Put the lights in a known state: on, and full brightness when driving with color.
@@ -182,6 +239,8 @@ function stop() {
   setRunning(false);
   $("orb").style.opacity = 0.08;
   $("glow").style.opacity = 0;
+  litChip = "";
+  for (const c of $("palette").children) c.classList.remove("on");
   if (wasRunning && lights.connected) return lights.send(CMD.brightness(100));
 }
 
@@ -203,6 +262,7 @@ function loop() {
   const now = performance.now();
   const out = app.instance.frame({ audio: app.mic ? app.mic.read() : null, now, settings: app.settings });
   if (!out) return;
+  if (!out.raw) markPalette(out);
   if (out.raw) {
     // Raw commands from the mode: send only when they change.
     const key = out.raw.map(hex).join("|");

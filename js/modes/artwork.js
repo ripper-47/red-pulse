@@ -28,6 +28,9 @@ export default {
     ...FLASH_SETTINGS,
   ],
 
+  // Shown under the lamp: the cover's colors, or the stand-ins until there is a cover.
+  palette: () => (live.palette.length ? live.palette : FALLBACK),
+
   create({ stream } = {}) {
     const track = stream?.getVideoTracks()[0];
     live.screen = track ? watchScreen(track) : null;
@@ -40,7 +43,11 @@ export default {
     return {
       frame(f) {
         settings = f.settings;
-        if (f.now - lastSample > SAMPLE_MS) { lastSample = f.now; refresh(settings); }
+        if (f.now - lastSample > SAMPLE_MS) {
+          lastSample = f.now;
+          // A bad screen frame or cover must not stop the flashing; the last colors stay in use.
+          try { refresh(settings); } catch (e) { console.warn("Album Art couldn't read the cover", e); }
+        }
         return flash(f);
       },
       stop() {
@@ -69,16 +76,20 @@ function source(art) {
 }
 
 const sampler = document.createElement("canvas");
-sampler.width = sampler.height = 40;
+// Read at 96×96 without smoothing, so thin colored lettering on a plain cover keeps its real color
+// instead of being blended into the background.
+const N = 96;
+sampler.width = sampler.height = N;
 const sctx = sampler.getContext("2d", { willReadFrequently: true });
+sctx.imageSmoothingEnabled = false;
 
 function refresh(settings) {
   if (settings.art.use === "music") pollMusic();
   const src = source(settings.art);
   if (src) {
     const { img, w, h, box } = src;
-    sctx.drawImage(img, box.x * w, box.y * h, Math.max(1, box.w * w), Math.max(1, box.h * h), 0, 0, 40, 40);
-    live.palette = paletteOf(sctx.getImageData(0, 0, 40, 40).data, settings.count);
+    sctx.drawImage(img, box.x * w, box.y * h, Math.max(1, box.w * w), Math.max(1, box.h * h), 0, 0, N, N);
+    live.palette = paletteOf(sctx.getImageData(0, 0, N, N).data, settings.count);
   } else {
     live.palette = [];
   }
@@ -112,19 +123,23 @@ async function pollMusic() {
 export function paletteOf(data, count) {
   const BINS = 24;
   const weight = new Float64Array(BINS), sum = Array.from({ length: BINS }, () => [0, 0, 0]);
-  let total = 0, plain = 0;
+  let total = 0, colored = 0, light = 0;
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
     const v = max / 255, s = max ? (max - min) / max : 0;
-    if (v < 0.12 || s < 0.25) { plain++; continue; }
+    if (v < 0.12 || s < 0.25) { if (v > 0.75 && s < 0.15) light++; continue; }
+    colored++;
     const wt = s * s * v;
     const bin = Math.floor(hueOf(r, g, b, max, min) * BINS) % BINS;
     weight[bin] += wt; total += wt;
     sum[bin][0] += r * wt; sum[bin][1] += g * wt; sum[bin][2] += b * wt;
   }
-  // A black-and-white cover: flash white.
-  if (total < 0.5 || plain > (data.length / 4) * 0.97) return [[255, 255, 255]];
+  // A cover that is mostly white (or light gray) also flashes white, as one of its colors.
+  const pixels = data.length / 4;
+  const white = light > pixels * 0.3 ? [[255, 255, 255]] : [];
+  // Fewer than 0.3% colored pixels is noise: a black-and-white cover flashes white.
+  if (colored < pixels * 0.003) return [[255, 255, 255]];
   const picked = [];
   const order = [...weight.keys()].sort((a, b) => weight[b] - weight[a]);
   for (const bin of order) {
@@ -132,7 +147,9 @@ export function paletteOf(data, count) {
     if (picked.some((p) => Math.min(Math.abs(p - bin), BINS - Math.abs(p - bin)) < 2)) continue;
     picked.push(bin);
   }
-  return picked.map((bin) => vivid(sum[bin].map((c) => c / weight[bin])));
+  const colors = picked.map((bin) => vivid(sum[bin].map((c) => c / weight[bin])));
+  // White takes one of the slots, but the cover's own colors always keep at least one.
+  return white.length ? [...colors.slice(0, Math.max(1, count - 1)), ...white] : colors;
 }
 
 function hueOf(r, g, b, max, min) {
@@ -225,7 +242,6 @@ function render(field, ctx) {
   seg.style.gridTemplateColumns = "repeat(3, 1fr)";
   const canvas = el("canvas", "art-view");
   const note = el("p", "hint");
-  const chips = el("div", "art-chips");
   const file = el("input", "", { type: "file", accept: "image/*", hidden: true });
   const choose = el("button", "art-choose", { textContent: "Choose a picture" });
   // Setup for the Music app helper, shown until it answers.
@@ -238,7 +254,7 @@ function render(field, ctx) {
   };
   setup.append(cmd, copy);
   if (canShareAudio) field.append(seg);
-  field.append(canvas, note, setup, chips, choose, file);
+  field.append(canvas, note, setup, choose, file);
 
   const art = () => ctx.get();
   const update = (patch) => { ctx.set({ ...art(), ...patch }); view.changed(); };
@@ -318,10 +334,6 @@ function render(field, ctx) {
           : "Reading the cover every second. Drag again if it moved."
           : !a.picture ? "Choose a picture of the album cover. A screenshot of the Now Playing screen works."
           : "Drag a box to use only part of the picture.";
-      chips.replaceChildren(...live.palette.map(([r, g, b]) => {
-        const c = el("span"); c.style.background = `rgb(${r},${g},${b})`; return c;
-      }));
-      chips.hidden = !live.palette.length;
     },
   };
   live.view = view;

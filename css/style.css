@@ -159,6 +159,15 @@ body:not(.connected) .btn-connect:hover:not(:disabled) { background: #fff; }
 .running .btn-go { background: transparent; color: var(--bone); border-color: var(--signal); box-shadow: none; }
 .running .btn-go:hover { background: rgba(255, 77, 46, .1); }
 .running .go-icon { width: 12px; height: 12px; border: 0; border-radius: 2px; background: var(--signal); }
+/* Colors the mode will play, under the lamp */
+.palette { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin: -6px auto 22px; max-width: 360px; }
+.palette span {
+  width: 44px; height: 16px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+  opacity: .85; transition: opacity 120ms var(--ease), transform 120ms var(--ease);
+}
+.running .palette span { opacity: .4; }
+.palette span.on { opacity: 1; transform: scaleY(1.45); box-shadow: 0 0 14px currentColor; }
+.start-error { margin: 10px 0 0; text-align: center; color: var(--warn); font-size: 13px; }
 .go-hint { margin: 10px 0 0; text-align: center; color: var(--ash); font-size: 13px; }
 .connected .go-hint { display: none; }
 
@@ -250,8 +259,6 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
   border-radius: var(--r-sm); border: 1px solid var(--rule);
   background: var(--ink); cursor: crosshair; touch-action: none;
 }
-.art-chips { display: flex; gap: 8px; margin-top: 12px; }
-.art-chips span { flex: 1; height: 26px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
 .art-choose { width: 100%; margin-top: 12px; }
 .art-view.art-cover { max-height: 200px; cursor: default; }
 .art-setup code {
