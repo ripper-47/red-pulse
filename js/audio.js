@@ -9,27 +9,32 @@ export const canShareAudio = !!navigator.mediaDevices?.getDisplayMedia && !/iPho
 export class Mic {
   // source: "mic", or "share" to hear what the computer plays. onEnded fires if sharing is stopped.
   async start(source = "mic", onEnded) {
-    if (source === "share") {
-      // Chrome only offers audio alongside video, so ask for a tiny video track and drop it.
-      this.stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 1, width: 320 },
-        audio: { ...RAW, suppressLocalAudioPlayback: false },
-        systemAudio: "include",
-        selfBrowserSurface: "exclude",
-        preferCurrentTab: false,
-      });
-      const track = this.stream.getAudioTracks()[0];
-      if (!track) {
-        this.stream.getTracks().forEach((t) => t.stop());
-        throw new Error("no audio was shared. Pick a tab or screen and turn on its audio switch");
-      }
-      this.stream.getVideoTracks().forEach((t) => t.stop());
-      track.onended = () => onEnded?.();
-    } else {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: RAW });
-    }
+    // Made before the picker, while the Start click still counts: a context created after a slow pick
+    // can stay suspended and never produce sound.
     this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
-    await this.ctx.resume();
+    this.ctx.resume().catch(() => {});
+    try {
+      if (source === "share") {
+        // Chrome only offers audio alongside video, so ask for a tiny video track. It is left running:
+        // on some systems stopping it ends the shared sound too.
+        this.stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: 1, width: 320 },
+          audio: { ...RAW, suppressLocalAudioPlayback: false },
+          systemAudio: "include",
+          selfBrowserSurface: "exclude",
+          preferCurrentTab: false,
+        });
+        const track = this.stream.getAudioTracks()[0];
+        if (!track) throw new Error("no audio was shared. Turn on the audio switch in the share window");
+        track.onended = () => onEnded?.();
+      } else {
+        this.stream = await navigator.mediaDevices.getUserMedia({ audio: RAW });
+      }
+      await this.ctx.resume();
+    } catch (e) {
+      this.stop();
+      throw e;
+    }
     const src = this.ctx.createMediaStreamSource(this.stream);
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 1024;

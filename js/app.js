@@ -130,12 +130,13 @@ async function start() {
     try { await app.mic.start(app.source, () => { log("sharing stopped"); stop(); }); }
     catch (e) {
       log((app.source === "share" ? "share: " : "mic: ") + errText(e));
-      $("status").textContent = app.source === "share" ? "Sound wasn't shared. Press Start and turn on the audio switch" : "Microphone permission is needed";
+      $("status").textContent = app.source === "share" ? "Sound wasn't shared (" + errText(e) + ")" : "Microphone permission is needed";
       app.mic = null; return;
     }
   }
   app.running = true;
   $("go").textContent = "Stop";
+  $("status").textContent = "Connected to " + lights.name; // clear any message left by an earlier failed start
   await prime();
   ticker.postMessage(16);
   try { await navigator.wakeLock?.request("screen"); } catch {}
