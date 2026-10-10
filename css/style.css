@@ -253,6 +253,12 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .art-chips { display: flex; gap: 8px; margin-top: 12px; }
 .art-chips span { flex: 1; height: 26px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
 .art-choose { width: 100%; margin-top: 12px; }
+.art-view.art-cover { max-height: 200px; cursor: default; }
+.art-setup code {
+  display: block; margin-top: 10px; padding: 10px 12px; border-radius: var(--r-sm);
+  background: var(--ink); border: 1px solid var(--rule); color: var(--brass);
+  font: 500 12px/1.5 var(--mono); word-break: break-all; user-select: all;
+}
 
 input[type=color] {
   width: 100%; height: 48px; padding: 4px; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--ink);
