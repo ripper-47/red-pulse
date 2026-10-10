@@ -55,3 +55,5 @@ select { font: inherit; color: var(--text); background: #2a1216; border: 1px sol
 .swatches button { height: 58px; padding: 4px; border: 2px solid transparent; opacity: .35; display: flex; align-items: flex-end; justify-content: center; }
 .swatches button span { font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px #000; line-height: 1.1; }
 .swatches button.sel { opacity: 1; border-color: var(--text); }
+#sourceBox { margin-bottom: 14px; }
+#sourceBox > label { margin-top: 0; }

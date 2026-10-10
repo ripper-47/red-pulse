@@ -18,6 +18,14 @@ A native Swift app is the fallback if Bluefy's mic or Bluetooth misbehaves; it n
 3. Tap **Solid red** to confirm control, then **Start** and allow the microphone.
 4. Keep the screen on while it runs; iOS pauses the mic when the screen locks.
 
+### On a Mac or PC
+Open the page in **Chrome** or **Edge** (Safari can't use Bluetooth). The music modes then show **Sound from**:
+- **Microphone**: listens to the room, same as on the phone.
+- **Music on this computer**: hears the music directly, with no mic in between. Press **Start**, then in the share picker:
+  - music in a Chrome tab (Spotify web, YouTube Music, music.apple.com): choose that tab and leave **Also share tab audio** on. This works on any recent Chrome.
+  - music in a desktop app (Spotify, Apple Music): choose **Entire Screen** and turn on **Also share system audio**. That switch only appears on newer Chrome and macOS versions; if it's missing, play the music in a Chrome tab instead.
+  Pressing Chrome's **Stop sharing** bar stops the mode.
+
 Controls: Style (Pulse = smooth, Blink = flash on beats), Sensitivity, Bass focus. Both styles go pitch black between hits. Under Advanced you can switch to driving the lights with the brightness command instead of the red level, change the update rate, show every Bluetooth device, and see a log.
 
 ## Code layout
@@ -27,7 +35,7 @@ Plain ES modules, no build step; GitHub Pages serves the repo as is.
 |---|---|
 | `js/protocol.js` | Bluetooth IDs and command bytes (`CMD.on`, `CMD.color(r,g,b)`, `CMD.brightness(pct)`, `CMD.effect(id)`, ...) |
 | `js/lights.js` | Connecting to the controller and sending commands. Knows nothing about modes. |
-| `js/audio.js` | `Mic` (per-frame `rms`, `bass`, `mid`, `treble`, `spectrum`) and `AdaptiveLevel` (turns energy into 0..1 that adapts to the room) |
+| `js/audio.js` | `Mic` (microphone or shared tab/system sound; per-frame `rms`, `bass`, `mid`, `treble`, `spectrum`) and `AdaptiveLevel` (turns energy into 0..1 that adapts to the room) |
 | `js/modes/*.js` | One file per lighting mode |
 | `js/modes/index.js` | The list of modes shown in the app |
 | `js/app.js` | UI: mode picker, settings controls, run loop that sends each frame to the lights |

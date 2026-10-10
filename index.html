@@ -28,6 +28,16 @@
     <div id="modePicker" style="margin-bottom:14px">
       <select id="mode" aria-label="Mode"></select>
     </div>
+    <div id="sourceBox" hidden>
+      <label>Sound from</label>
+      <div class="seg" id="source">
+        <button data-v="mic" class="sel">Microphone</button>
+        <button data-v="share">Music on this computer</button>
+      </div>
+      <div id="sourceHint" class="mode-desc" hidden>
+        Press Start, then pick the Chrome tab playing music (or Entire Screen for the Spotify or Music app) and turn on the audio switch.
+      </div>
+    </div>
     <div id="orb"></div>
     <button id="go" class="primary" disabled>Start</button>
     <div id="modeDesc" class="mode-desc"></div>
