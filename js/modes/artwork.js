@@ -123,23 +123,21 @@ async function pollMusic() {
 export function paletteOf(data, count) {
   const BINS = 24;
   const weight = new Float64Array(BINS), sum = Array.from({ length: BINS }, () => [0, 0, 0]);
-  let total = 0, colored = 0, light = 0;
+  let total = 0, colored = 0;
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
     const v = max / 255, s = max ? (max - min) / max : 0;
-    if (v < 0.12 || s < 0.25) { if (v > 0.75 && s < 0.15) light++; continue; }
+    if (v < 0.12 || s < 0.25) continue;
     colored++;
     const wt = s * s * v;
     const bin = Math.floor(hueOf(r, g, b, max, min) * BINS) % BINS;
     weight[bin] += wt; total += wt;
     sum[bin][0] += r * wt; sum[bin][1] += g * wt; sum[bin][2] += b * wt;
   }
-  // A cover that is mostly white (or light gray) also flashes white, as one of its colors.
-  const pixels = data.length / 4;
-  const white = light > pixels * 0.3 ? [[255, 255, 255]] : [];
-  // Fewer than 0.3% colored pixels is noise: a black-and-white cover flashes white.
-  if (colored < pixels * 0.003) return [[255, 255, 255]];
+  // Fewer than 0.3% colored pixels is noise. A black-and-white cover gives no colors, so the stand-in
+  // deep colors play (never white: the strip shows stray colors in white and pale tints).
+  if (colored < (data.length / 4) * 0.003) return [];
   const picked = [];
   const order = [...weight.keys()].sort((a, b) => weight[b] - weight[a]);
   for (const bin of order) {
@@ -147,9 +145,7 @@ export function paletteOf(data, count) {
     if (picked.some((p) => Math.min(Math.abs(p - bin), BINS - Math.abs(p - bin)) < 2)) continue;
     picked.push(bin);
   }
-  const colors = picked.map((bin) => vivid(sum[bin].map((c) => c / weight[bin])));
-  // White takes one of the slots, but the cover's own colors always keep at least one.
-  return white.length ? [...colors.slice(0, Math.max(1, count - 1)), ...white] : colors;
+  return picked.map((bin) => vivid(sum[bin].map((c) => c / weight[bin])));
 }
 
 function hueOf(r, g, b, max, min) {
@@ -158,10 +154,11 @@ function hueOf(r, g, b, max, min) {
   return ((h / 6) % 1 + 1) % 1;
 }
 
-// Same hue at full strength and more saturated, as 0-255 LED values.
+// Same hue at full strength and full saturation, as 0-255 LED values. The strip shows stray colors in
+// light tints (all three channels lit), so the weakest channel is always off.
 function vivid([r, g, b]) {
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const s = Math.min(1, (max ? (max - min) / max : 0) * 1.3 + 0.1);
+  const s = 1;
   const h = hueOf(r, g, b, max, min) * 6;
   const f = (n) => {
     const k = (n + h) % 6;
@@ -244,15 +241,16 @@ function render(field, ctx) {
   const note = el("p", "hint");
   const file = el("input", "", { type: "file", accept: "image/*", hidden: true });
   const choose = el("button", "art-choose", { textContent: "Choose a picture" });
-  // Setup for the Music app helper, shown until it answers.
+  // The command that starts the Music app helper, with a Copy button.
   const setup = el("div", "art-setup");
   const cmd = el("code", "", { textContent: HELPER_CMD });
   const copy = el("button", "art-choose", { textContent: "Copy command" });
   copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(HELPER_CMD); copy.textContent = "Copied"; }
+    try { await navigator.clipboard.writeText(HELPER_CMD); copy.textContent = "Copied"; setTimeout(() => (copy.textContent = "Copy command"), 2000); }
     catch { getSelection().selectAllChildren(cmd); }
   };
-  setup.append(cmd, copy);
+  const setupLabel = el("p", "hint art-setup-label", { textContent: "Helper command for Terminal" });
+  setup.append(setupLabel, cmd, copy);
   if (canShareAudio) field.append(seg);
   field.append(canvas, note, setup, choose, file);
 
@@ -307,7 +305,9 @@ function render(field, ctx) {
       const img = a.use === "music" ? music.img : a.use === "screen" ? live.screen?.frame : loadPicture(a.picture);
       const [w, h] = a.use === "music" ? [img?.width, img?.height] : a.use === "screen" ? [live.screen?.w, live.screen?.h] : [img?.naturalWidth, img?.naturalHeight];
       canvas.classList.toggle("art-cover", a.use === "music");
-      setup.hidden = !(a.use === "music" && music.state === "nohelper");
+      // Always there on the Music app tab, so the command is at hand each time the helper needs starting.
+      setup.hidden = a.use !== "music";
+      setupLabel.hidden = music.state === "nohelper"; // the note above already introduces it
       canvas.hidden = !(img && w);
       if (!canvas.hidden) {
         canvas.width = 640; canvas.height = Math.round((640 * h) / w);
