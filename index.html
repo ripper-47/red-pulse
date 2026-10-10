@@ -4,64 +4,87 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#0b0507">
+<meta name="theme-color" content="#0f0d0c">
 <title>Lights</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <h1 id="title">Lights</h1>
-  <div class="sub">Custom modes for your Bluetooth rope lights.</div>
+  <!-- Light spill: tinted with whatever color the lights are showing right now. -->
+  <div id="glow" aria-hidden="true"></div>
 
-  <div id="unsupported" class="panel warn" hidden>
-    This browser can't reach Bluetooth. On iPhone, open this page in the free <b>Bluefy</b> browser app.
+  <header class="top">
+    <h1 class="brand"><span class="brand-mark" aria-hidden="true"></span>Lights</h1>
+    <p class="tagline">Custom modes for your rope lights</p>
+  </header>
+
+  <div id="unsupported" class="card warn" hidden>
+    This browser can't reach Bluetooth. On iPhone, open this page in the free <b>Bluefy</b> browser app. On a Mac, use Chrome or Edge.
   </div>
 
-  <div class="panel">
-    <div class="row" style="margin-bottom:12px">
-      <div id="dot" class="dot"></div>
-      <div id="status" class="status">Not connected</div>
-    </div>
-    <button id="connect">Connect to lights</button>
-  </div>
-
-  <div class="panel">
-    <div id="modePicker" style="margin-bottom:14px">
-      <select id="mode" aria-label="Mode"></select>
-    </div>
-    <div id="sourceBox" hidden>
-      <label>Sound from</label>
-      <div class="seg" id="source">
-        <button data-v="mic" class="sel">Microphone</button>
-        <button data-v="share">Music on this computer</button>
+  <main class="layout">
+    <section class="card conn" aria-label="Connection">
+      <div class="conn-row">
+        <span id="dot" class="dot" aria-hidden="true"></span>
+        <span id="status" class="status" role="status">Not connected</span>
       </div>
-      <div id="sourceHint" class="mode-desc" hidden>
-        Press Start, then pick the Chrome tab playing music (or Entire Screen for the Spotify or Music app) and turn on the audio switch.
-      </div>
-    </div>
-    <div id="orb"></div>
-    <button id="go" class="primary" disabled>Start</button>
-    <div id="modeDesc" class="mode-desc"></div>
-    <div id="settings"></div>
-  </div>
+      <button id="connect" class="btn-connect">Connect to lights</button>
+    </section>
 
-  <div class="panel">
-    <div class="grid2">
-      <button id="testRed" disabled>Solid red</button>
-      <button id="off" disabled>Lights off</button>
-    </div>
-    <details style="margin-top:12px">
-      <summary>Advanced</summary>
-      <label>Drive brightness with</label>
-      <div class="seg" id="method">
-        <button data-v="color" class="sel">Color level</button>
-        <button data-v="bright">Brightness cmd</button>
+    <section class="card stage" aria-label="Mode">
+      <div id="modePicker" class="modes-wrap">
+        <div id="mode" class="modes" role="tablist" aria-label="Mode"></div>
       </div>
-      <label>Updates per second <span id="rateV"></span></label>
-      <input id="rate" type="range" min="5" max="60" value="40">
-      <label><input id="showAll" type="checkbox"> Show every Bluetooth device when connecting</label>
-      <div id="log"></div>
-    </details>
-  </div>
+      <h2 id="modeName" class="mode-name"></h2>
+      <p id="modeDesc" class="mode-desc"></p>
+      <div class="lamp">
+        <div id="orb"></div>
+      </div>
+      <button id="go" class="btn-go" disabled><span class="go-icon" aria-hidden="true"></span><span class="go-label">Start</span></button>
+      <p class="go-hint">Connect your lights to start.</p>
+    </section>
+
+    <section class="card tune" aria-label="Settings">
+      <h3 class="card-title">Tune</h3>
+      <div id="sourceBox" class="field" hidden>
+        <label>Sound from</label>
+        <div class="seg" id="source">
+          <button data-v="mic" class="sel">Microphone</button>
+          <button data-v="share">Music on this computer</button>
+        </div>
+        <p id="sourceHint" class="hint" hidden>
+          Press Start, then pick the Chrome tab playing music (or Entire Screen for the Spotify or Music app) and turn on the audio switch.
+        </p>
+      </div>
+      <div id="settings" class="settings"></div>
+    </section>
+
+    <section class="card tools" aria-label="Quick actions">
+      <h3 class="card-title">Quick</h3>
+      <div class="grid2">
+        <button id="testRed" class="btn-quiet" disabled><span class="chip-red" aria-hidden="true"></span>Solid red</button>
+        <button id="off" class="btn-quiet" disabled>Lights off</button>
+      </div>
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <div class="field">
+          <label>Drive brightness with</label>
+          <div class="seg" id="method">
+            <button data-v="color" class="sel">Color level</button>
+            <button data-v="bright">Brightness cmd</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Updates per second <span id="rateV" class="val"></span></label>
+          <input id="rate" type="range" min="5" max="60" value="40">
+        </div>
+        <label class="check"><input id="showAll" type="checkbox"> Show every Bluetooth device when connecting</label>
+        <div id="log"></div>
+      </details>
+    </section>
+  </main>
 
 <script type="module" src="js/app.js"></script>
 </body>

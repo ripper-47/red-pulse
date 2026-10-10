@@ -20,6 +20,7 @@ const app = { source: "mic", method: "color", mode: null, settings: {}, instance
 // ---- Connection ----
 function setConnected(ok, text) {
   $("dot").classList.toggle("on", ok);
+  document.body.classList.toggle("connected", ok);
   $("status").textContent = text;
   for (const id of ["go", "testRed", "off"]) $(id).disabled = !ok;
   $("connect").textContent = ok ? "Disconnect" : "Connect to lights";
@@ -45,7 +46,12 @@ function selectMode(id) {
   app.mode = MODES.find((m) => m.id === id) || MODES[0];
   const saved = store.get("settings:" + app.mode.id) || {};
   app.settings = Object.fromEntries(app.mode.settings.map((s) => [s.key, saved[s.key] ?? s.default]));
-  $("title").textContent = app.mode.name;
+  $("modeName").textContent = app.mode.name;
+  for (const b of $("mode").children) {
+    const on = b.dataset.id === app.mode.id;
+    b.classList.toggle("sel", on);
+    b.setAttribute("aria-selected", on);
+  }
   $("modeDesc").textContent = app.mode.description || "";
   renderSettings();
   store.set("mode", app.mode.id);
@@ -56,9 +62,13 @@ function renderSettings() {
   box.innerHTML = "";
   const save = () => store.set("settings:" + app.mode.id, app.settings);
   for (const s of app.mode.settings) {
+    // Each setting is a field: its label, then its control.
+    const field = document.createElement("div");
+    field.className = "field field-" + s.type;
     const label = document.createElement("label");
     label.textContent = s.label;
-    box.append(label);
+    field.append(label);
+    box.append(field);
     if (s.type === "choice") {
       const seg = document.createElement("div");
       seg.className = "seg";
@@ -70,15 +80,15 @@ function renderSettings() {
         b.onclick = () => { app.settings[s.key] = value; for (const x of seg.children) x.classList.toggle("sel", x === b); save(); };
         seg.append(b);
       }
-      box.append(seg);
+      field.append(seg);
     } else if (s.type === "range") {
       const val = document.createElement("span");
       const input = Object.assign(document.createElement("input"), { type: "range", min: s.min, max: s.max, step: s.step ?? 1, value: app.settings[s.key] });
-      const show = () => (val.textContent = input.value + (s.unit || ""));
+      const show = () => { val.textContent = input.value + (s.unit || ""); fillRange(input); };
       input.oninput = () => { app.settings[s.key] = +input.value; show(); save(); };
       show();
       label.append(val);
-      box.append(input);
+      field.append(input);
     } else if (s.type === "number") {
       // Stepper for picking exact values on a phone, with an optional name per value.
       const row = document.createElement("div");
@@ -92,7 +102,7 @@ function renderSettings() {
       minus.onclick = () => step(-1); plus.onclick = () => step(1);
       show();
       row.append(minus, val, plus);
-      box.append(row);
+      field.append(row);
     } else if (s.type === "swatches") {
       // Tap colors on or off; at least one always stays on.
       const grid = document.createElement("div");
@@ -111,17 +121,22 @@ function renderSettings() {
         };
         grid.append(b);
       }
-      box.append(grid);
+      field.append(grid);
     } else if (s.type === "color") {
       const input = Object.assign(document.createElement("input"), { type: "color", value: app.settings[s.key] });
       input.oninput = () => { app.settings[s.key] = input.value; save(); };
-      box.append(input);
+      field.append(input);
     }
   }
 }
 
+// Range tracks are filled up to the thumb with a CSS variable.
+function fillRange(input) {
+  input.style.setProperty("--fill", ((input.value - input.min) / (input.max - input.min)) * 100 + "%");
+}
+
 // ---- Run loop ----
-let lastKey = "", lastSendAt = 0, lastBase = "", lastOut = { r: 0, g: 0, b: 0 };
+let lastHue = "", lastKey = "", lastSendAt = 0, lastBase = "", lastOut = { r: 0, g: 0, b: 0 };
 
 async function start() {
   app.instance = app.mode.create(app.settings);
@@ -135,7 +150,7 @@ async function start() {
     }
   }
   app.running = true;
-  $("go").textContent = "Stop";
+  setRunning(true);
   $("status").textContent = "Connected to " + lights.name; // clear any message left by an earlier failed start
   await prime();
   ticker.postMessage(16);
@@ -159,9 +174,15 @@ function stop() {
   ticker.postMessage(0);
   app.mic?.stop(); app.mic = null;
   app.instance?.stop?.(); app.instance = null;
-  $("go").textContent = "Start";
+  setRunning(false);
   $("orb").style.opacity = 0.08;
+  $("glow").style.opacity = 0;
   if (wasRunning && lights.connected) return lights.send(CMD.brightness(100));
+}
+
+function setRunning(on) {
+  document.body.classList.toggle("running", on);
+  $("go").querySelector(".go-label").textContent = on ? "Stop" : "Start";
 }
 
 // Chrome pauses requestAnimationFrame in a background tab, which froze the lights when switching tabs.
@@ -184,8 +205,16 @@ function loop() {
     return;
   }
   const peak = Math.max(out.r, out.g, out.b);
-  $("orb").style.background = `radial-gradient(circle at 50% 45%, rgb(${out.r / (peak || 1) * 255},${out.g / (peak || 1) * 255},${out.b / (peak || 1) * 255}), #1a0a0d 75%)`;
+  const hue = `rgb(${Math.round(out.r / (peak || 1) * 255)},${Math.round(out.g / (peak || 1) * 255)},${Math.round(out.b / (peak || 1) * 255)})`;
+  if (peak && hue !== lastHue) {
+    // Repaint the gradients only when the color changes; brightness is just opacity.
+    lastHue = hue;
+    $("orb").style.background = `radial-gradient(circle at 50% 45%, ${hue}, #140b09 75%)`;
+    $("orb").style.boxShadow = `0 0 60px ${hue}`;
+    $("glow").style.background = `radial-gradient(ellipse at 50% 30%, ${hue}, transparent 65%)`;
+  }
   $("orb").style.opacity = Math.max(0.08, peak / 255).toFixed(3);
+  $("glow").style.opacity = (peak / 255 * 0.22).toFixed(3);
 
   // A big jump (new color, a hit, going dark) goes out immediately; small fades respect the update rate.
   const jump = Math.max(Math.abs(out.r - lastOut.r), Math.abs(out.g - lastOut.g), Math.abs(out.b - lastOut.b));
@@ -207,12 +236,15 @@ function loop() {
 }
 
 // ---- Wiring ----
-const picker = $("mode");
-for (const m of MODES) picker.append(new Option(m.name, m.id));
-picker.value = store.get("mode") || MODES[0].id;
-picker.onchange = () => selectMode(picker.value);
+for (const m of MODES) {
+  const b = Object.assign(document.createElement("button"), { textContent: m.name });
+  b.dataset.id = m.id;
+  b.setAttribute("role", "tab");
+  b.onclick = () => { if (m.id !== app.mode.id) selectMode(m.id); };
+  $("mode").append(b);
+}
 $("modePicker").hidden = MODES.length < 2;
-selectMode(picker.value);
+selectMode(store.get("mode"));
 
 $("method").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -235,7 +267,7 @@ $("source").addEventListener("click", (e) => {
   setSource(b.dataset.v);
 });
 
-const showRate = () => ($("rateV").textContent = $("rate").value);
+const showRate = () => { $("rateV").textContent = $("rate").value; fillRange($("rate")); };
 $("rate").oninput = showRate; showRate();
 
 $("connect").onclick = connect;
