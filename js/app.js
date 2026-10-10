@@ -137,6 +137,7 @@ async function start() {
   app.running = true;
   $("go").textContent = "Stop";
   await prime();
+  ticker.postMessage(16);
   try { await navigator.wakeLock?.request("screen"); } catch {}
   loop();
 }
@@ -153,7 +154,8 @@ async function prime() {
 function stop() {
   const wasRunning = app.running;
   app.running = false;
-  cancelAnimationFrame(app.raf);
+  cancelAnimationFrame(app.raf); app.raf = 0;
+  ticker.postMessage(0);
   app.mic?.stop(); app.mic = null;
   app.instance?.stop?.(); app.instance = null;
   $("go").textContent = "Start";
@@ -161,9 +163,16 @@ function stop() {
   if (wasRunning && lights.connected) return lights.send(CMD.brightness(100));
 }
 
+// Chrome pauses requestAnimationFrame in a background tab, which froze the lights when switching tabs.
+// A worker's timer keeps ticking there, so it drives the frames while the page is hidden.
+const ticker = new Worker(URL.createObjectURL(new Blob(
+  ["let t; onmessage = (e) => { clearInterval(t); if (e.data) t = setInterval(() => postMessage(0), e.data); };"],
+  { type: "text/javascript" })));
+ticker.onmessage = () => { if (document.hidden) loop(); };
+
 function loop() {
   if (!app.running) return;
-  app.raf = requestAnimationFrame(loop);
+  if (!app.raf) app.raf = requestAnimationFrame(() => { app.raf = 0; loop(); });
   const now = performance.now();
   const out = app.instance.frame({ audio: app.mic ? app.mic.read() : null, now, settings: app.settings });
   if (!out) return;
