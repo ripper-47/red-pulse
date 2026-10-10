@@ -261,6 +261,7 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 }
 .art-choose { width: 100%; margin-top: 12px; }
 .art-view.art-cover { max-height: 200px; cursor: default; }
+.art-setup-label { margin-top: 14px; }
 .art-setup code {
   display: block; margin-top: 10px; padding: 10px 12px; border-radius: var(--r-sm);
   background: var(--ink); border: 1px solid var(--rule); color: var(--brass);

@@ -244,15 +244,16 @@ function render(field, ctx) {
   const note = el("p", "hint");
   const file = el("input", "", { type: "file", accept: "image/*", hidden: true });
   const choose = el("button", "art-choose", { textContent: "Choose a picture" });
-  // Setup for the Music app helper, shown until it answers.
+  // The command that starts the Music app helper, with a Copy button.
   const setup = el("div", "art-setup");
   const cmd = el("code", "", { textContent: HELPER_CMD });
   const copy = el("button", "art-choose", { textContent: "Copy command" });
   copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(HELPER_CMD); copy.textContent = "Copied"; }
+    try { await navigator.clipboard.writeText(HELPER_CMD); copy.textContent = "Copied"; setTimeout(() => (copy.textContent = "Copy command"), 2000); }
     catch { getSelection().selectAllChildren(cmd); }
   };
-  setup.append(cmd, copy);
+  const setupLabel = el("p", "hint art-setup-label", { textContent: "Helper command for Terminal" });
+  setup.append(setupLabel, cmd, copy);
   if (canShareAudio) field.append(seg);
   field.append(canvas, note, setup, choose, file);
 
@@ -307,7 +308,9 @@ function render(field, ctx) {
       const img = a.use === "music" ? music.img : a.use === "screen" ? live.screen?.frame : loadPicture(a.picture);
       const [w, h] = a.use === "music" ? [img?.width, img?.height] : a.use === "screen" ? [live.screen?.w, live.screen?.h] : [img?.naturalWidth, img?.naturalHeight];
       canvas.classList.toggle("art-cover", a.use === "music");
-      setup.hidden = !(a.use === "music" && music.state === "nohelper");
+      // Always there on the Music app tab, so the command is at hand each time the helper needs starting.
+      setup.hidden = a.use !== "music";
+      setupLabel.hidden = music.state === "nohelper"; // the note above already introduces it
       canvas.hidden = !(img && w);
       if (!canvas.hidden) {
         canvas.width = 640; canvas.height = Math.round((640 * h) / w);
