@@ -8,7 +8,8 @@ export const canShareAudio = !!navigator.mediaDevices?.getDisplayMedia && !/iPho
 
 export class Mic {
   // source: "mic", or "share" to hear what the computer plays. onEnded fires if sharing is stopped.
-  async start(source = "mic", onEnded) {
+  // sharp: when sharing, keep the screen picture detailed enough to read from (Album Art reads the cover).
+  async start(source = "mic", onEnded, { sharp = false } = {}) {
     // Made before the picker, while the Start click still counts: a context created after a slow pick
     // can stay suspended and never produce sound.
     this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
@@ -18,7 +19,7 @@ export class Mic {
         // Chrome only offers audio alongside video, so ask for a tiny video track. It is left running:
         // on some systems stopping it ends the shared sound too.
         this.stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: 1, width: 320 },
+          video: { frameRate: 1, width: sharp ? 1920 : 320 },
           audio: { ...RAW, suppressLocalAudioPlayback: false },
           systemAudio: "include",
           selfBrowserSurface: "exclude",

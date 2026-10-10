@@ -1,0 +1,271 @@
+// Each beat flashes a color taken from the album cover of the song playing, then the lights go black.
+// The cover comes from the shared screen (a box drawn around it, re-read every second so it follows the
+// song) or from a picture chosen on the device.
+import { canShareAudio } from "../audio.js";
+import { FLASH_SETTINGS, beatFlasher, pickOther } from "./flash.js";
+
+// Until there is a cover to read: Dark Colors' deep red, dark blue and purple.
+const FALLBACK = [[255, 0, 0], [0, 0, 255], [120, 0, 255]];
+const SAMPLE_MS = 1000;
+
+// Shared between the running mode and its settings panel.
+const live = { screen: null, picture: null, pictureSrc: "", palette: [], view: null };
+
+export default {
+  id: "artwork",
+  name: "Album Art",
+  description: "Each beat flashes a color from the song's album cover, then the lights go off until the next beat.",
+  usesMic: true,
+  usesScreen: true, // asks for a sharper screen picture when sharing, so a small cover can be read
+  settings: [
+    { key: "art", label: "Album cover", type: "custom", default: { use: canShareAudio ? "screen" : "picture", screen: null, picture: null, crop: null }, render },
+    { key: "count", label: "Colors per cover", type: "range", min: 1, max: 6, default: 4 },
+    ...FLASH_SETTINGS,
+  ],
+
+  create({ stream } = {}) {
+    const track = stream?.getVideoTracks()[0];
+    live.screen = track ? watchScreen(track) : null;
+    let settings, lastSample = -Infinity;
+    const flash = beatFlasher((current) => {
+      const list = live.palette.length ? live.palette : FALLBACK;
+      return pickOther(list, list.find((c) => current && c.join() === current.join()));
+    });
+    live.view?.draw();
+    return {
+      frame(f) {
+        settings = f.settings;
+        if (f.now - lastSample > SAMPLE_MS) { lastSample = f.now; refresh(settings); }
+        return flash(f);
+      },
+      stop() {
+        live.screen?.stop();
+        live.screen = null;
+        live.view?.draw();
+      },
+    };
+  },
+};
+
+// ---- Reading the cover ----
+
+// The image and the box (fractions of it) the colors come from right now, or null.
+function source(art) {
+  if (art.use === "screen") {
+    const s = live.screen;
+    return s?.frame && art.screen ? { img: s.frame, w: s.w, h: s.h, box: art.screen } : null;
+  }
+  const img = loadPicture(art.picture);
+  return img?.naturalWidth ? { img, w: img.naturalWidth, h: img.naturalHeight, box: art.crop || { x: 0, y: 0, w: 1, h: 1 } } : null;
+}
+
+const sampler = document.createElement("canvas");
+sampler.width = sampler.height = 40;
+const sctx = sampler.getContext("2d", { willReadFrequently: true });
+
+function refresh(settings) {
+  const src = source(settings.art);
+  if (src) {
+    const { img, w, h, box } = src;
+    sctx.drawImage(img, box.x * w, box.y * h, Math.max(1, box.w * w), Math.max(1, box.h * h), 0, 0, 40, 40);
+    live.palette = paletteOf(sctx.getImageData(0, 0, 40, 40).data, settings.count);
+  } else {
+    live.palette = [];
+  }
+  live.view?.draw();
+}
+
+// The cover's main colors, most prominent first, made vivid for the LEDs (they can't show dark or gray).
+// Pixels are grouped by hue; near-black and gray pixels are skipped, and close hues count as one color.
+export function paletteOf(data, count) {
+  const BINS = 24;
+  const weight = new Float64Array(BINS), sum = Array.from({ length: BINS }, () => [0, 0, 0]);
+  let total = 0, plain = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const v = max / 255, s = max ? (max - min) / max : 0;
+    if (v < 0.12 || s < 0.25) { plain++; continue; }
+    const wt = s * s * v;
+    const bin = Math.floor(hueOf(r, g, b, max, min) * BINS) % BINS;
+    weight[bin] += wt; total += wt;
+    sum[bin][0] += r * wt; sum[bin][1] += g * wt; sum[bin][2] += b * wt;
+  }
+  // A black-and-white cover: flash white.
+  if (total < 0.5 || plain > (data.length / 4) * 0.97) return [[255, 255, 255]];
+  const picked = [];
+  const order = [...weight.keys()].sort((a, b) => weight[b] - weight[a]);
+  for (const bin of order) {
+    if (picked.length >= count || weight[bin] < total * 0.03) break;
+    if (picked.some((p) => Math.min(Math.abs(p - bin), BINS - Math.abs(p - bin)) < 2)) continue;
+    picked.push(bin);
+  }
+  return picked.map((bin) => vivid(sum[bin].map((c) => c / weight[bin])));
+}
+
+function hueOf(r, g, b, max, min) {
+  const d = max - min || 1;
+  const h = max === r ? (g - b) / d : max === g ? 2 + (b - r) / d : 4 + (r - g) / d;
+  return ((h / 6) % 1 + 1) % 1;
+}
+
+// Same hue at full strength and more saturated, as 0-255 LED values.
+function vivid([r, g, b]) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const s = Math.min(1, (max ? (max - min) / max : 0) * 1.3 + 0.1);
+  const h = hueOf(r, g, b, max, min) * 6;
+  const f = (n) => {
+    const k = (n + h) % 6;
+    return Math.round(255 * (1 - s * Math.max(0, Math.min(k, 4 - k, 1))));
+  };
+  return [f(5), f(3), f(1)];
+}
+
+// Keeps the latest picture of the shared screen. Chrome's track processor keeps delivering frames while the
+// tab is in the background; a video element is the fallback.
+function watchScreen(track) {
+  const s = { frame: null, w: 0, h: 0, stop() {} };
+  if (window.MediaStreamTrackProcessor) {
+    const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+    let on = true;
+    (async () => {
+      while (true) {
+        const { value, done } = await reader.read().catch(() => ({ done: true }));
+        if (done) break;
+        if (!on) { value.close(); break; }
+        s.frame?.close();
+        s.frame = value; s.w = value.displayWidth; s.h = value.displayHeight;
+      }
+    })();
+    s.stop = () => { on = false; reader.cancel().catch(() => {}); s.frame?.close(); s.frame = null; };
+  } else {
+    const v = Object.assign(document.createElement("video"), { muted: true, playsInline: true, srcObject: new MediaStream([track]) });
+    v.play().catch(() => {});
+    Object.defineProperties(s, {
+      frame: { get: () => (v.videoWidth ? v : null) },
+      w: { get: () => v.videoWidth },
+      h: { get: () => v.videoHeight },
+    });
+    s.stop = () => { v.srcObject = null; };
+  }
+  return s;
+}
+
+function loadPicture(src) {
+  if (src !== live.pictureSrc) {
+    live.pictureSrc = src || "";
+    live.picture = null;
+    if (src) {
+      const img = new Image();
+      img.onload = () => { if (live.pictureSrc === src) { live.picture = img; live.view?.changed(); } };
+      img.src = src;
+    }
+  }
+  return live.picture;
+}
+
+// A chosen photo, shrunk so it fits in the browser's saved settings.
+function shrink(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 480 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = Object.assign(document.createElement("canvas"), { width: Math.round(img.naturalWidth * k), height: Math.round(img.naturalHeight * k) });
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("couldn't open that picture")); };
+    img.src = url;
+  });
+}
+
+// ---- Settings panel: a preview of the screen or picture, where a box is dragged around the cover ----
+
+function render(field, ctx) {
+  const el = (tag, cls, props) => Object.assign(document.createElement(tag), cls ? { className: cls } : {}, props);
+  const seg = el("div", "seg");
+  const screenBtn = el("button", "", { textContent: "From the screen" });
+  const pictureBtn = el("button", "", { textContent: "From a picture" });
+  seg.append(screenBtn, pictureBtn);
+  const canvas = el("canvas", "art-view");
+  const note = el("p", "hint");
+  const chips = el("div", "art-chips");
+  const file = el("input", "", { type: "file", accept: "image/*", hidden: true });
+  const choose = el("button", "art-choose", { textContent: "Choose a picture" });
+  if (canShareAudio) field.append(seg);
+  field.append(canvas, note, chips, choose, file);
+
+  const art = () => ctx.get();
+  const update = (patch) => { ctx.set({ ...art(), ...patch }); view.changed(); };
+  screenBtn.onclick = () => update({ use: "screen" });
+  pictureBtn.onclick = () => update({ use: "picture" });
+  choose.onclick = () => file.click();
+  file.onchange = async () => {
+    const f = file.files[0]; file.value = "";
+    if (!f) return;
+    try { update({ use: "picture", picture: await shrink(f), crop: null }); }
+    catch (e) { note.textContent = "Couldn't open that picture. Try a JPEG or PNG."; }
+  };
+
+  // Dragging on the preview sets the box (as fractions of the image).
+  let drag = null;
+  const at = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+  };
+  canvas.onpointerdown = (e) => { canvas.setPointerCapture(e.pointerId); drag = { from: at(e), box: null }; };
+  canvas.onpointermove = (e) => {
+    if (!drag) return;
+    const [x0, y0] = drag.from, [x1, y1] = at(e);
+    drag.box = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    view.draw();
+  };
+  canvas.onpointerup = canvas.onpointercancel = () => {
+    const box = drag?.box; drag = null;
+    if (box && box.w > 0.005 && box.h > 0.005) update(art().use === "screen" ? { screen: box } : { crop: box });
+    else view.draw();
+  };
+
+  const view = {
+    // Settings changed: re-read the colors now instead of waiting for the next sample.
+    changed() { refresh(ctx.settings); },
+    draw() {
+      if (!canvas.isConnected) { if (live.view === view) live.view = null; return; }
+      const a = art();
+      screenBtn.classList.toggle("sel", a.use === "screen");
+      pictureBtn.classList.toggle("sel", a.use === "picture");
+      choose.hidden = a.use === "screen";
+      const img = a.use === "screen" ? live.screen?.frame : loadPicture(a.picture);
+      const w = a.use === "screen" ? live.screen?.w : img?.naturalWidth, h = a.use === "screen" ? live.screen?.h : img?.naturalHeight;
+      canvas.hidden = !(img && w);
+      if (!canvas.hidden) {
+        canvas.width = 640; canvas.height = Math.round((640 * h) / w);
+        const g = canvas.getContext("2d");
+        g.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const box = drag?.box || (a.use === "screen" ? a.screen : a.crop);
+        if (box) {
+          const [x, y, bw, bh] = [box.x * canvas.width, box.y * canvas.height, box.w * canvas.width, box.h * canvas.height];
+          g.fillStyle = "rgba(0,0,0,.55)";
+          g.beginPath(); g.rect(0, 0, canvas.width, canvas.height); g.rect(x, y, bw, bh); g.fill("evenodd");
+          g.strokeStyle = "#efe7dc"; g.lineWidth = 3; g.strokeRect(x, y, bw, bh);
+        }
+      }
+      note.textContent =
+        a.use === "screen"
+          ? !live.screen ? "With Sound from set to Music on this computer, press Start and share the screen showing Spotify or Music."
+          : !w ? "Waiting for the shared screen…"
+          : !a.screen ? "Drag a box around the album cover. The colors follow it each time the song changes."
+          : "Reading the cover every second. Drag again if it moved."
+          : !a.picture ? "Choose a picture of the album cover. A screenshot of the Now Playing screen works."
+          : "Drag a box to use only part of the picture.";
+      chips.replaceChildren(...live.palette.map(([r, g, b]) => {
+        const c = el("span"); c.style.background = `rgb(${r},${g},${b})`; return c;
+      }));
+      chips.hidden = !live.palette.length;
+    },
+  };
+  live.view = view;
+  view.changed();
+}
