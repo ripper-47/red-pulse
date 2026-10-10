@@ -1,10 +1,33 @@
-// Microphone input. Each frame gives raw loudness features; modes decide what to do with them.
+// Sound input: the microphone, or (on a computer) the music itself via the browser's share picker.
+// Each frame gives raw loudness features; modes decide what to do with them.
+
+const RAW = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+
+// Chrome and Edge on a computer can capture a tab's or the whole system's sound. Phones can't.
+export const canShareAudio = !!navigator.mediaDevices?.getDisplayMedia && !/iPhone|iPad|Android/i.test(navigator.userAgent);
 
 export class Mic {
-  async start() {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-    });
+  // source: "mic", or "share" to hear what the computer plays. onEnded fires if sharing is stopped.
+  async start(source = "mic", onEnded) {
+    if (source === "share") {
+      // Chrome only offers audio alongside video, so ask for a tiny video track and drop it.
+      this.stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 1, width: 320 },
+        audio: { ...RAW, suppressLocalAudioPlayback: false },
+        systemAudio: "include",
+        selfBrowserSurface: "exclude",
+        preferCurrentTab: false,
+      });
+      const track = this.stream.getAudioTracks()[0];
+      if (!track) {
+        this.stream.getTracks().forEach((t) => t.stop());
+        throw new Error("no audio was shared. Pick a tab or screen and turn on its audio switch");
+      }
+      this.stream.getVideoTracks().forEach((t) => t.stop());
+      track.onended = () => onEnded?.();
+    } else {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: RAW });
+    }
     this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
     await this.ctx.resume();
     const src = this.ctx.createMediaStreamSource(this.stream);

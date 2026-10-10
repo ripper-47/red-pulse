@@ -1,7 +1,7 @@
 // UI wiring: picks a mode, feeds it mic data every frame, and sends its color to the lights.
 import { CMD, hex } from "./protocol.js";
 import { Lights, errText } from "./lights.js";
-import { Mic } from "./audio.js";
+import { Mic, canShareAudio } from "./audio.js";
 import { MODES } from "./modes/index.js";
 
 const $ = (id) => document.getElementById(id);
@@ -15,7 +15,7 @@ const store = {
 };
 
 const lights = new Lights({ log, onDisconnect: () => { stop(); setConnected(false, "Disconnected"); } });
-const app = { method: "color", mode: null, settings: {}, instance: null, mic: null, running: false, raf: 0 };
+const app = { source: "mic", method: "color", mode: null, settings: {}, instance: null, mic: null, running: false, raf: 0 };
 
 // ---- Connection ----
 function setConnected(ok, text) {
@@ -127,8 +127,12 @@ async function start() {
   app.instance = app.mode.create(app.settings);
   if (app.mode.usesMic) {
     app.mic = new Mic();
-    try { await app.mic.start(); }
-    catch (e) { log("mic: " + errText(e)); $("status").textContent = "Microphone permission is needed"; app.mic = null; return; }
+    try { await app.mic.start(app.source, () => { log("sharing stopped"); stop(); }); }
+    catch (e) {
+      log((app.source === "share" ? "share: " : "mic: ") + errText(e));
+      $("status").textContent = app.source === "share" ? "Sound wasn't shared. Press Start and turn on the audio switch" : "Microphone permission is needed";
+      app.mic = null; return;
+    }
   }
   app.running = true;
   $("go").textContent = "Stop";
@@ -206,6 +210,21 @@ $("method").addEventListener("click", (e) => {
   for (const x of $("method").children) x.classList.toggle("sel", x === b);
   if (app.running) prime();
 });
+// Sound source: only offered where the browser can share a tab's or the computer's sound.
+$("sourceBox").hidden = !canShareAudio;
+const setSource = (v) => {
+  app.source = canShareAudio && v === "share" ? "share" : "mic";
+  for (const x of $("source").children) x.classList.toggle("sel", x.dataset.v === app.source);
+  $("sourceHint").hidden = app.source !== "share";
+  store.set("source", app.source);
+};
+setSource(store.get("source"));
+$("source").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b || b.dataset.v === app.source) return;
+  if (app.running) stop();
+  setSource(b.dataset.v);
+});
+
 const showRate = () => ($("rateV").textContent = $("rate").value);
 $("rate").oninput = showRate; showRate();
 
