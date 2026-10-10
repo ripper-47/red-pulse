@@ -136,13 +136,15 @@ function fillRange(input) {
 }
 
 // ---- Run loop ----
+const MIN_GAP_MS = 45;
 let lastHue = "", lastKey = "", lastSendAt = 0, lastBase = "", lastOut = { r: 0, g: 0, b: 0 };
 
 async function start() {
   app.instance = app.mode.create(app.settings);
   if (app.mode.usesMic) {
     app.mic = new Mic();
-    try { await app.mic.start(app.source, () => { log("sharing stopped"); stop(); }); }
+    const ended = () => { stop(); $("status").textContent = "Sharing stopped. Press Start to share the sound again"; };
+    try { await app.mic.start(app.source, ended, log); }
     catch (e) {
       log((app.source === "share" ? "share: " : "mic: ") + errText(e));
       $("status").textContent = app.source === "share" ? "Sound wasn't shared (" + errText(e) + ")" : "Microphone permission is needed";
@@ -216,8 +218,11 @@ function loop() {
   $("orb").style.opacity = Math.max(0.08, peak / 255).toFixed(3);
   $("glow").style.opacity = (peak / 255 * 0.22).toFixed(3);
 
-  // A big jump (new color, a hit, going dark) goes out immediately; small fades respect the update rate.
+  // A big jump (new color, a hit, going dark) goes out at once; small fades respect the update rate.
+  // Nothing goes out closer than MIN_GAP_MS apart, though: a flood of light commands crowds the computer's
+  // Bluetooth radio, which made AirPods and other Bluetooth headphones drop out and pause the music.
   const jump = Math.max(Math.abs(out.r - lastOut.r), Math.abs(out.g - lastOut.g), Math.abs(out.b - lastOut.b));
+  if (now - lastSendAt < MIN_GAP_MS) return;
   if (jump < 60 && now - lastSendAt < 1000 / +$("rate").value) return;
   let cmd;
   if (app.method === "color") {
