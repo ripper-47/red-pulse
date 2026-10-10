@@ -37,7 +37,9 @@ export class Mic {
       } else {
         this.stream = await navigator.mediaDevices.getUserMedia({ audio: RAW });
       }
-      await this.ctx.resume();
+      // resume() can wait forever if the audio output is busy switching (AirPods connecting, for example);
+      // don't hold up Start for it, onstatechange below keeps retrying.
+      await Promise.race([this.ctx.resume(), new Promise((r) => setTimeout(r, 1000))]);
     } catch (e) {
       this.stop();
       throw e;

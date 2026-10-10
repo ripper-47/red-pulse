@@ -29,6 +29,8 @@ export default {
     ...FLASH_SETTINGS,
   ],
 
+  palette: (settings) => settings.colors.filter((id) => LED[id]).map((id) => LED[id]),
+
   create() {
     // Never the same color twice in a row (unless only one is chosen).
     let settings;
