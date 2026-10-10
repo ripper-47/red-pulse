@@ -4,8 +4,10 @@
 import { canShareAudio } from "../audio.js";
 import { FLASH_SETTINGS, beatFlasher, pickOther } from "./flash.js";
 
-// Until there is a cover to read: Dark Colors' deep red, dark blue and purple.
-const FALLBACK = [[255, 0, 0], [0, 0, 255], [120, 0, 255]];
+// Until there is a cover to read (or for one with no real color): Dark Colors' deep colors, as many as asked
+// for: deep red, dark blue, purple, wine magenta, burnt orange, indigo.
+const FALLBACK = [[255, 0, 0], [0, 0, 255], [120, 0, 255], [255, 0, 110], [255, 50, 0], [50, 0, 255]];
+const colorsFor = (settings) => (live.palette.length ? live.palette : FALLBACK.slice(0, settings.count));
 const SAMPLE_MS = 1000;
 
 // Shared between the running mode and its settings panel.
@@ -29,14 +31,14 @@ export default {
   ],
 
   // Shown under the lamp: the cover's colors, or the stand-ins until there is a cover.
-  palette: () => (live.palette.length ? live.palette : FALLBACK),
+  palette: colorsFor,
 
   create({ stream } = {}) {
     const track = stream?.getVideoTracks()[0];
     live.screen = track ? watchScreen(track) : null;
     let settings, lastSample = -Infinity;
     const flash = beatFlasher((current) => {
-      const list = live.palette.length ? live.palette : FALLBACK;
+      const list = colorsFor(settings);
       return pickOther(list, list.find((c) => current && c.join() === current.join()));
     });
     live.view?.draw();
@@ -138,14 +140,42 @@ export function paletteOf(data, count) {
   // Fewer than 0.3% colored pixels is noise. A black-and-white cover gives no colors, so the stand-in
   // deep colors play (never white: the strip shows stray colors in white and pale tints).
   if (colored < (data.length / 4) * 0.003) return [];
+  // Exactly `count` colors. First the cover's strongest hues, kept at least 30° apart; then any other hue
+  // it really uses; then, if the cover has fewer hues than asked for, close neighbours of its own hues
+  // (15° steps), so a red cover gives reds, crimsons and oranges rather than unrelated colors.
+  const binDist = (a, b) => Math.min(Math.abs(a - b), BINS - Math.abs(a - b));
+  const order = [...weight.keys()].filter((b) => weight[b] > total * 0.005).sort((a, b) => weight[b] - weight[a]);
   const picked = [];
-  const order = [...weight.keys()].sort((a, b) => weight[b] - weight[a]);
-  for (const bin of order) {
-    if (picked.length >= count || weight[bin] < total * 0.03) break;
-    if (picked.some((p) => Math.min(Math.abs(p - bin), BINS - Math.abs(p - bin)) < 2)) continue;
-    picked.push(bin);
+  for (const [minGap, minShare] of [[2, 0.03], [1, 0.005]]) {
+    for (const bin of order) {
+      if (picked.length >= count) break;
+      if (weight[bin] < total * minShare || picked.some((p) => binDist(p, bin) < minGap)) continue;
+      picked.push(bin);
+    }
   }
-  return picked.map((bin) => vivid(sum[bin].map((c) => c / weight[bin])));
+  const colors = picked.map((bin) => vivid(sum[bin].map((c) => c / weight[bin])));
+  const used = new Set(picked);
+  for (let step = 1; colors.length < count && step < BINS / 2; step++) {
+    for (const bin of picked) {
+      for (const n of [(bin + step) % BINS, (bin - step + BINS) % BINS]) {
+        if (colors.length >= count || used.has(n)) continue;
+        used.add(n);
+        // Same offset from the cover's own hue (not the bin's center), so the neighbours stay close to it.
+        const [r, g, b] = colors[picked.indexOf(bin)];
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const off = (n - bin + BINS) % BINS <= BINS / 2 ? step : -step;
+        colors.push(fromHue(hueOf(r, g, b, max, min) + off / BINS));
+      }
+    }
+  }
+  return colors;
+}
+
+// A pure, fully saturated color for a hue (0..1, wraps), as 0-255 LED values.
+function fromHue(hue) {
+  const h = (((hue % 1) + 1) % 1) * 6;
+  const f = (n) => { const k = (n + h) % 6; return Math.round(255 * (1 - Math.max(0, Math.min(k, 4 - k, 1)))); };
+  return [f(5), f(3), f(1)];
 }
 
 function hueOf(r, g, b, max, min) {
@@ -287,10 +317,13 @@ function render(field, ctx) {
   };
 
   // While stopped, keep checking the Music app so the cover and colors show before Start.
+  // Moving "Colors per cover" re-reads the cover right away, so the preview always shows that many colors.
+  let lastCount = ctx.settings.count;
   const poll = setInterval(() => {
-    if (!canvas.isConnected) clearInterval(poll);
-    else if (art().use === "music") pollMusic();
-  }, 2000);
+    if (!canvas.isConnected) return clearInterval(poll);
+    if (art().use === "music") pollMusic();
+    if (ctx.settings.count !== lastCount) { lastCount = ctx.settings.count; view.changed(); }
+  }, 250);
 
   const view = {
     // Settings changed: re-read the colors now instead of waiting for the next sample.
