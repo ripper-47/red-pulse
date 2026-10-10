@@ -9,7 +9,9 @@ export const canShareAudio = !!navigator.mediaDevices?.getDisplayMedia && !/iPho
 export class Mic {
   // source: "mic", or "share" to hear what the computer plays. onEnded fires if sharing is stopped.
   // sharp: when sharing, keep the screen picture detailed enough to read from (Album Art reads the cover).
-  async start(source = "mic", onEnded, { sharp = false } = {}) {
+  // log gets a line for each capture hiccup, so a report from the page's log says what happened.
+  async start(source = "mic", onEnded, { sharp = false, log = () => {} } = {}) {
+    this.log = log;
     // Made before the picker, while the Start click still counts: a context created after a slow pick
     // can stay suspended and never produce sound.
     this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
@@ -27,7 +29,11 @@ export class Mic {
         });
         const track = this.stream.getAudioTracks()[0];
         if (!track) throw new Error("no audio was shared. Turn on the audio switch in the share window");
-        track.onended = () => onEnded?.();
+        track.onended = () => {
+          const video = this.stream?.getVideoTracks()[0];
+          log("shared sound ended" + (video?.readyState === "live" ? " (screen share still on)" : ""));
+          onEnded?.();
+        };
       } else {
         this.stream = await navigator.mediaDevices.getUserMedia({ audio: RAW });
       }
@@ -36,17 +42,45 @@ export class Mic {
       this.stop();
       throw e;
     }
-    const src = this.ctx.createMediaStreamSource(this.stream);
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 1024;
     this.analyser.smoothingTimeConstant = 0; // no averaging across frames, so hits register at once
-    src.connect(this.analyser);
+    this.#connect();
+
+    // Between songs the system can pause the capture or the audio engine (for example when the player
+    // switches sample rate), and the sound may not come back on its own. Each of these puts it back.
+    const track = this.stream.getAudioTracks()[0];
+    track.onmute = () => log("sound capture paused");
+    track.onunmute = () => { log("sound capture resumed"); this.#connect(); };
+    this.ctx.onstatechange = () => {
+      if (!this.ctx) return;
+      log("audio engine " + this.ctx.state);
+      if (this.ctx.state !== "running" && this.ctx.state !== "closed") this.ctx.resume().catch(() => {});
+    };
+    this.silentSince = null; this.lastHeal = 0;
     this.freq = new Uint8Array(this.analyser.frequencyBinCount);
     this.timeBuf = new Float32Array(this.analyser.fftSize);
   }
 
+  // (Re)attach the stream to the analyser with a fresh source node.
+  #connect() {
+    if (!this.ctx) return;
+    try { this.src?.disconnect(); } catch {}
+    this.src = this.ctx.createMediaStreamSource(this.stream);
+    this.src.connect(this.analyser);
+  }
+
+  // Called while input is dead silent: every 2 s, wake the audio engine and reattach the stream.
+  // Harmless during a real pause, and it brings back sound that stalled after one.
+  #heal(now) {
+    if (now - this.lastHeal < 2000) return;
+    this.lastHeal = now;
+    if (this.ctx.state !== "running") this.ctx.resume().catch(() => {});
+    this.#connect();
+  }
+
   stop() {
-    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream?.getTracks().forEach((t) => { t.onended = t.onmute = t.onunmute = null; t.stop(); });
     this.ctx?.close();
     this.ctx = null;
   }
@@ -65,6 +99,14 @@ export class Mic {
     let sum = 0;
     for (let i = 0; i < this.timeBuf.length; i++) sum += this.timeBuf[i] * this.timeBuf[i];
     this.analyser.getByteFrequencyData(this.freq);
+    const now = performance.now();
+    if (sum === 0) {
+      this.silentSince ??= now;
+      if (now - this.silentSince > 1500) this.#heal(now);
+    } else {
+      if (this.silentSince !== null && now - this.silentSince > 1500) this.log("sound back after " + ((now - this.silentSince) / 1000).toFixed(1) + " s of silence");
+      this.silentSince = null;
+    }
     const shape = (v) => Math.pow(v, 2) * 0.25;
     return {
       rms: Math.sqrt(sum / this.timeBuf.length),
