@@ -61,7 +61,7 @@ function selectMode(id) {
 function renderSettings() {
   const box = $("settings");
   box.innerHTML = "";
-  const save = () => store.set("settings:" + app.mode.id, app.settings);
+  const save = () => { store.set("settings:" + app.mode.id, app.settings); showPalette(); };
   for (const s of app.mode.settings) {
     // Each setting is a field: its label, then its control.
     const field = document.createElement("div");
@@ -169,7 +169,6 @@ function markPalette(out) {
 }
 
 // ---- Run loop ----
-const MIN_GAP_MS = 45;
 let lastHue = "", lastKey = "", lastSendAt = 0, lastBase = "", lastOut = { r: 0, g: 0, b: 0 };
 
 // A failed start is reported under Start, where the click was, as well as in the connection status.
@@ -282,10 +281,7 @@ function loop() {
   $("glow").style.opacity = (peak / 255 * 0.22).toFixed(3);
 
   // A big jump (new color, a hit, going dark) goes out at once; small fades respect the update rate.
-  // Nothing goes out closer than MIN_GAP_MS apart, though: a flood of light commands crowds the computer's
-  // Bluetooth radio, which made AirPods and other Bluetooth headphones drop out and pause the music.
   const jump = Math.max(Math.abs(out.r - lastOut.r), Math.abs(out.g - lastOut.g), Math.abs(out.b - lastOut.b));
-  if (now - lastSendAt < MIN_GAP_MS) return;
   if (jump < 60 && now - lastSendAt < 1000 / +$("rate").value) return;
   let cmd;
   if (app.method === "color") {
