@@ -27,6 +27,7 @@ export default {
   settings: [
     { key: "art", label: "Album cover", type: "custom", default: { use: canShareAudio ? "music" : "picture", screen: null, picture: null, crop: null }, render },
     { key: "count", label: "Colors per cover", type: "range", min: 1, max: 6, default: 4 },
+    { key: "grays", label: "Black and white on the cover", type: "choice", options: [["on", "Add gray shades"], ["off", "Skip"]], default: "on" },
     ...FLASH_SETTINGS,
   ],
 
@@ -91,7 +92,11 @@ function refresh(settings) {
   if (src) {
     const { img, w, h, box } = src;
     sctx.drawImage(img, box.x * w, box.y * h, Math.max(1, box.w * w), Math.max(1, box.h * h), 0, 0, N, N);
-    live.palette = paletteOf(sctx.getImageData(0, 0, N, N).data, settings.count);
+    const data = sctx.getImageData(0, 0, N, N).data;
+    live.palette = paletteOf(data, settings.count);
+    // Black and white on the cover add gray shades, so a black-and-white cover flashes grays instead of
+    // the stand-in colors. Saved settings from before this option count as on.
+    if (settings.grays !== "off") live.palette.push(...grayShadesOf(data));
   } else {
     live.palette = [];
   }
@@ -169,6 +174,20 @@ export function paletteOf(data, count) {
     }
   }
   return colors;
+}
+
+// Gray shades for the cover's black and white: two dark grays when at least a tenth of it is black or
+// near-black, two light grays when at least a tenth is white or light gray. As 0-255 LED values.
+export function grayShadesOf(data) {
+  let dark = 0, light = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const max = Math.max(data[i], data[i + 1], data[i + 2]), min = Math.min(data[i], data[i + 1], data[i + 2]);
+    if (max - min > max * 0.25) continue; // has real color
+    if (max < 50) dark++;
+    else if (max > 180) light++;
+  }
+  const n = data.length / 4, gray = (v) => [v, v, v].map((c) => Math.round(c * 255));
+  return [...(dark > n * 0.1 ? [gray(0.2), gray(0.35)] : []), ...(light > n * 0.1 ? [gray(0.6), gray(0.85)] : [])];
 }
 
 // A pure, fully saturated color for a hue (0..1, wraps), as 0-255 LED values.
