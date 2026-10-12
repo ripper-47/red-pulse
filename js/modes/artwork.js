@@ -147,7 +147,7 @@ export function paletteOf(data, count) {
   if (colored < (data.length / 4) * 0.003) return [];
   // Exactly `count` colors. First the cover's strongest hues, kept at least 30° apart; then any other hue
   // it really uses; then, if the cover has fewer hues than asked for, close neighbours of its own hues
-  // (15° steps), so a red cover gives reds, crimsons and oranges rather than unrelated colors.
+  // and darker shades of them (below), so a red cover gives reds and oranges rather than unrelated colors.
   const binDist = (a, b) => Math.min(Math.abs(a - b), BINS - Math.abs(a - b));
   const order = [...weight.keys()].filter((b) => weight[b] > total * 0.005).sort((a, b) => weight[b] - weight[a]);
   const picked = [];
@@ -158,22 +158,33 @@ export function paletteOf(data, count) {
       picked.push(bin);
     }
   }
-  const colors = picked.map((bin) => vivid(sum[bin].map((c) => c / weight[bin])));
-  const used = new Set(picked);
-  for (let step = 1; colors.length < count && step < BINS / 2; step++) {
-    for (const bin of picked) {
-      for (const n of [(bin + step) % BINS, (bin - step + BINS) % BINS]) {
-        if (colors.length >= count || used.has(n)) continue;
-        used.add(n);
-        // Same offset from the cover's own hue (not the bin's center), so the neighbours stay close to it.
-        const [r, g, b] = colors[picked.indexOf(bin)];
-        const max = Math.max(r, g, b), min = Math.min(r, g, b);
-        const off = (n - bin + BINS) % BINS <= BINS / 2 ? step : -step;
-        colors.push(fromHue(hueOf(r, g, b, max, min) + off / BINS));
+  // Reds a little toward blue (crimson, 342-360°) and a little toward orange (up to 10°) are sent as pure
+  // red: on the strip the blue LED is strong, so even a small amount of it turns red visibly pink.
+  const colors = [];
+  const add = (c) => { if (colors.length < count && !colors.some((x) => x.join() === c.join())) colors.push(c); };
+  for (const bin of picked) add(trueRed(vivid(sum[bin].map((c) => c / weight[bin]))));
+  const base = [...colors];
+  // Fill-ins: neighbours within 30° of the cover's own hues, but never toward pink from a red (that is what
+  // made red covers look pink), then darker shades of the cover's colors.
+  for (const step of [1, 2]) {
+    for (const c of base) {
+      const h = hueOf(c[0], c[1], c[2], Math.max(...c), Math.min(...c));
+      for (const off of [step, -step]) {
+        const n = (((h + off / BINS) % 1) + 1) % 1;
+        if (isRed(h) && n > 0.8) continue;
+        add(trueRed(fromHue(n)));
       }
     }
   }
+  for (const k of [0.7, 0.45, 0.25]) for (const c of base) add(c.map((v) => Math.round(v * k)));
   return colors;
+}
+
+// Hue (0..1) within 342°-10° of pure red.
+const isRed = (h) => h >= 342 / 360 || h <= 10 / 360;
+function trueRed(c) {
+  const h = hueOf(c[0], c[1], c[2], Math.max(...c), Math.min(...c));
+  return isRed(h) ? [255, 0, 0] : c;
 }
 
 // Gray shades for the cover's black and white: two dark grays when at least a tenth of it is black or
