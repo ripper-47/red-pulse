@@ -41,11 +41,16 @@ async function connect() {
 }
 
 // ---- Mode picker and settings, built from each mode's `settings` list ----
+// Every mode gets a Brightness slider first. Color modes are scaled by it here in the run loop; raw modes
+// (Built-in Effects) send it as the controller's brightness command, which stop() puts back to full.
+const BRIGHTNESS = { key: "brightness", label: "Brightness", type: "range", min: 5, max: 100, default: 100, unit: "%" };
+const fieldsOf = (mode) => [BRIGHTNESS, ...mode.settings];
+
 function selectMode(id) {
   if (app.running) stop();
   app.mode = MODES.find((m) => m.id === id) || MODES[0];
   const saved = store.get("settings:" + app.mode.id) || {};
-  app.settings = Object.fromEntries(app.mode.settings.map((s) => [s.key, saved[s.key] ?? s.default]));
+  app.settings = Object.fromEntries(fieldsOf(app.mode).map((s) => [s.key, saved[s.key] ?? s.default]));
   $("modeName").textContent = app.mode.name;
   for (const b of $("mode").children) {
     const on = b.dataset.id === app.mode.id;
@@ -64,7 +69,7 @@ function renderSettings() {
   const box = $("settings");
   box.innerHTML = "";
   const save = () => { store.set("settings:" + app.mode.id, app.settings); showPalette(); };
-  for (const s of app.mode.settings) {
+  for (const s of fieldsOf(app.mode)) {
     // Each setting is a field: its label, then its control.
     const field = document.createElement("div");
     field.className = "field field-" + s.type;
@@ -264,15 +269,22 @@ function loop() {
   if (!app.running) return;
   if (!app.raf) app.raf = requestAnimationFrame(() => { app.raf = 0; loop(); });
   const now = performance.now();
-  const out = app.instance.frame({ audio: app.mic ? app.mic.read() : null, now, settings: app.settings });
-  if (!out) return;
-  if (!out.raw) markPalette(out);
-  if (out.raw) {
-    // Raw commands from the mode: send only when they change.
-    const key = out.raw.map(hex).join("|");
-    if (key !== lastKey && !lights.busy) { lastKey = key; log("sent " + key); lights.send(...out.raw); }
+  const frame = app.instance.frame({ audio: app.mic ? app.mic.read() : null, now, settings: app.settings });
+  if (!frame) return;
+  const dim = (app.settings.brightness ?? 100) / 100;
+  if (frame.raw) {
+    // Raw commands from the mode, then the brightness: send only when they change. A brightness change
+    // alone sends only the brightness, so moving the slider doesn't restart the effect.
+    const key = frame.raw.map(hex).join("|"), level = CMD.brightness(dim * 100);
+    if (lights.busy || (key === lastKey && hex(level) === lastBase)) return;
+    const cmds = key === lastKey ? [level] : [...frame.raw, level];
+    lastKey = key; lastBase = hex(level);
+    log("sent " + cmds.map(hex).join("|"));
+    lights.send(...cmds);
     return;
   }
+  markPalette(frame);
+  const out = { r: frame.r * dim, g: frame.g * dim, b: frame.b * dim };
   const peak = Math.max(out.r, out.g, out.b);
   const hue = `rgb(${Math.round(out.r / (peak || 1) * 255)},${Math.round(out.g / (peak || 1) * 255)},${Math.round(out.b / (peak || 1) * 255)})`;
   if (peak && hue !== lastHue) {

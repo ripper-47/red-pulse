@@ -16,7 +16,8 @@ export default {
 
   create() {
     return {
-      // Only send when something changed, so the effect isn't restarted every frame.
+      // Only send when something changed, so the effect isn't restarted every frame. The app adds the
+      // Brightness setting as a brightness command after these.
       frame({ settings }) {
         return { raw: [CMD.effect(settings.effect), CMD.effectSpeed(settings.speed)] };
       },
