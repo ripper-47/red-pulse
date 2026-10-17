@@ -11,7 +11,7 @@ const colorsFor = (settings) => (live.palette.length ? live.palette : FALLBACK.s
 const SAMPLE_MS = 1000;
 
 // Shared between the running mode and its settings panel.
-const live = { screen: null, picture: null, pictureSrc: "", palette: [], view: null };
+const live = { screen: null, picture: null, pictureSrc: "", palette: [], view: null, read: "" };
 
 // The Mac helper that reports what the Music app is playing (helper/now-playing.py).
 const HELPER = "http://127.0.0.1:47800";
@@ -31,8 +31,12 @@ export default {
     ...FLASH_SETTINGS,
   ],
 
-  // Shown under the lamp: the cover's colors, or the stand-ins until there is a cover.
-  palette: colorsFor,
+  // Shown under the lamp: the cover's colors, or the stand-ins until there is a cover. Moving "Colors per
+  // cover" re-reads the cover at once, so the chips always match the slider.
+  palette(settings) {
+    if (live.view && live.read !== settings.count + settings.grays) live.view.changed();
+    return colorsFor(settings);
+  },
 
   create({ stream } = {}) {
     const track = stream?.getVideoTracks()[0];
@@ -93,13 +97,13 @@ function refresh(settings) {
     const { img, w, h, box } = src;
     sctx.drawImage(img, box.x * w, box.y * h, Math.max(1, box.w * w), Math.max(1, box.h * h), 0, 0, N, N);
     const data = sctx.getImageData(0, 0, N, N).data;
-    live.palette = paletteOf(data, settings.count);
-    // Black and white on the cover add gray shades, so a black-and-white cover flashes grays instead of
-    // the stand-in colors. Saved settings from before this option count as on.
-    if (settings.grays !== "off") live.palette.push(...grayShadesOf(data));
+    // Black and white on the cover take some of the colors as gray shades (and black), so a mostly black
+    // cover flashes dark grays. Saved settings from before this option count as on.
+    live.palette = coverPalette(data, settings.count, settings.grays !== "off");
   } else {
     live.palette = [];
   }
+  live.read = settings.count + settings.grays;
   live.view?.draw();
 }
 
@@ -135,7 +139,7 @@ export function paletteOf(data, count) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
     const v = max / 255, s = max ? (max - min) / max : 0;
-    if (v < 0.12 || s < 0.25) continue;
+    if (max < 45 || s < 0.25) continue; // near-black reads as black (grayShareOf), not as its faint tint
     colored++;
     const wt = s * s * v;
     const bin = Math.floor(hueOf(r, g, b, max, min) * BINS) % BINS;
@@ -187,18 +191,46 @@ function trueRed(c) {
   return isRed(h) ? [255, 0, 0] : c;
 }
 
-// Gray shades for the cover's black and white: two dark grays when at least a tenth of it is black or
-// near-black, two light grays when at least a tenth is white or light gray. As 0-255 LED values.
-export function grayShadesOf(data) {
+// Exactly `count` colors for the cover: its own colors, plus gray shades for its black and white when
+// `grays` is on. Black or white covering at least a tenth of the cover gets a share of the colors in
+// proportion to how much of the cover it is (at least one), so a mostly black cover flashes mostly dark
+// grays. Black is in the list too: it is the strip switched off, a dark beat.
+export function coverPalette(data, count, grays) {
+  const { dark, light } = grayShareOf(data);
+  const darks = grays && dark >= 0.1 ? DARK_GRAYS : [], lights = grays && light >= 0.1 ? LIGHT_GRAYS : [];
+  if (!darks.length && !lights.length) return paletteOf(data, count);
+  const hasColor = paletteOf(data, 1).length > 0;
+  const share = (darks.length ? dark : 0) + (lights.length ? light : 0);
+  let n = Math.max(1, Math.round(count * share));
+  if (hasColor) n = count === 1 ? (share > 0.5 ? 1 : 0) : Math.min(n, count - 1);
+  else n = count;
+  // Split the gray slots between black and white by how much of each the cover has.
+  let nDark = darks.length ? (lights.length ? Math.round((n * dark) / (dark + light)) : n) : 0;
+  if (lights.length && nDark === n && n > 1) nDark--;
+  if (darks.length && nDark === 0 && n > 1) nDark++;
+  const shades = [...darks.slice(0, nDark), ...lights.slice(0, n - nDark)];
+  return [...paletteOf(data, count - shades.length), ...shades];
+}
+
+// Dark grays (and black) for the cover's black, light grays for its white, most used first. As 0-255 LED values.
+const gray = (v) => [v, v, v].map((c) => Math.round(c * 255));
+const DARK_GRAYS = [gray(0.2), gray(0), gray(0.35), gray(0.12), gray(0.28), gray(0.42)];
+const LIGHT_GRAYS = [gray(0.6), gray(0.85), gray(0.72), gray(0.5), gray(0.95), gray(0.78)];
+
+// How much of the cover (0..1) is black or near-black, and how much white or light gray. A very dark pixel
+// counts as black whatever its tint: dark covers are often slightly blue or brown in the file, which
+// is invisible on screen and used to keep them from counting as black at all.
+export function grayShareOf(data) {
   let dark = 0, light = 0;
   for (let i = 0; i < data.length; i += 4) {
     const max = Math.max(data[i], data[i + 1], data[i + 2]), min = Math.min(data[i], data[i + 1], data[i + 2]);
-    if (max - min > max * 0.25) continue; // has real color
-    if (max < 50) dark++;
+    if (max < 45) { dark++; continue; }
+    if (max - min > max * 0.3) continue; // has real color
+    if (max < 70) dark++;
     else if (max > 180) light++;
   }
-  const n = data.length / 4, gray = (v) => [v, v, v].map((c) => Math.round(c * 255));
-  return [...(dark > n * 0.1 ? [gray(0.2), gray(0.35)] : []), ...(light > n * 0.1 ? [gray(0.6), gray(0.85)] : [])];
+  const n = data.length / 4;
+  return { dark: dark / n, light: light / n };
 }
 
 // A pure, fully saturated color for a hue (0..1, wraps), as 0-255 LED values.
@@ -347,12 +379,9 @@ function render(field, ctx) {
   };
 
   // While stopped, keep checking the Music app so the cover and colors show before Start.
-  // Moving "Colors per cover" re-reads the cover right away, so the preview always shows that many colors.
-  let lastCount = ctx.settings.count;
   const poll = setInterval(() => {
     if (!canvas.isConnected) return clearInterval(poll);
     if (art().use === "music") pollMusic();
-    if (ctx.settings.count !== lastCount) { lastCount = ctx.settings.count; view.changed(); }
   }, 250);
 
   const view = {

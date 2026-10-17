@@ -16,6 +16,9 @@ const COLORS = [
   ["ocean", "Ocean blue", "#003a8a", [0, 80, 255]],
   ["plum", "Plum", "#5a0070", [180, 0, 200]],
   ["gold", "Dark gold", "#7a5a00", [255, 140, 0]],
+  // Dark gray lights all three LEDs dimly. Black is the strip switched off, so a black beat is a dark beat.
+  ["gray", "Dark gray", "#3a3a3a", [60, 60, 60]],
+  ["black", "Black", "#050505", [0, 0, 0]],
 ];
 const LED = Object.fromEntries(COLORS.map(([id, , , rgb]) => [id, rgb]));
 
