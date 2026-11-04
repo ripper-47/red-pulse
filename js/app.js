@@ -58,8 +58,8 @@ function selectMode(id) {
     b.setAttribute("aria-selected", on);
   }
   $("modeDesc").textContent = app.mode.description || "";
-  // "Sound from" means nothing to a mode that always shares the screen.
-  $("sourceBox").hidden = !canShareAudio || !!app.mode.sharesScreen;
+  // "Sound from" means nothing to a mode that always shares the screen or doesn't listen at all.
+  $("sourceBox").hidden = !canShareAudio || !!app.mode.sharesScreen || !app.mode.usesMic;
   renderSettings();
   showPalette();
   store.set("mode", app.mode.id);

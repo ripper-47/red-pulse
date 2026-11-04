@@ -12,6 +12,7 @@ Modes so far (every mode has a **Brightness** slider at the top):
 
   Colors per cover gives exactly that many colors. Black on the cover (including very dark, slightly tinted black) takes some of them as dark gray shades and black, and white takes some as light gray shades, in proportion to how much of the cover they are; a black-and-white cover flashes grays ("Black and white on the cover" can skip them).
 - **Movie** (Chrome or Edge on a computer): the lights take the main colors on the screen (1 to 5, Colors from the screen) and pulse softly through them, gliding to the next color with each pulse instead of flashing. Black on screen adds dark gray shades and white adds light gray shades ("Black and white on screen" can skip them). Press **Start** and share the screen (or the tab playing the movie) with its sound. Pulse follows the sound, breathes slowly, or stays steady; dark scenes take the lights down. Only deep, fully saturated colors are sent.
+- **Color Wheel**: the lights stay on one steady color. Press **Start**, then tap or drag on the wheel (around for the color, toward the center for paler); the lights follow as you move. No sound needed. Pale colors and white can look noisy on this strip.
 - **Built-in Effects**: steps through the controller's own patterns (effect numbers 0-255), including multi-color ones.
 
 ## Why a web page
